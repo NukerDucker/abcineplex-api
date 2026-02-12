@@ -8,16 +8,17 @@ class MovieBase(BaseModel):
     imdb_score: Optional[float] = None
     duration_minutes: int
     content_rating: str
-    director: str
-    starring: List[str]
-    synopsis: str
+    director: Optional[str] = None
+    starring: Optional[List[str]] = []
+    synopsis: Optional[str] = None
     poster_url: HttpUrl
     banner_url: HttpUrl
     trailer_url: Optional[HttpUrl] = None
-    audio_languages: List[str]
-    subtitle_languages: List[str]
+    audio_languages: Optional[List[str]] = []
+    subtitle_languages: Optional[List[str]] = []
     tag_event: Optional[str] = None
-    show_status: str
+    release_status: str
+    genres: Optional[List[str]] = []
 
 class MovieCreate(MovieBase):
     """Schema for creating a movie (request body)"""

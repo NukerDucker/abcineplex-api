@@ -1,76 +1,116 @@
 from supabase import Client
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from datetime import datetime
+from app.schemas.showtime import ShowtimeCreate, ShowtimeUpdate
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 class CRUDShowtime:
     def __init__(self, supabase_client: Client):
         self.client = supabase_client
 
+    async def create(self, showtime: ShowtimeCreate) -> dict:
+        """Create a new showtime"""
+        data = showtime.model_dump(mode='json')
+        response = self.client.table("showtimes").insert(data).execute()
+        return response.data[0]
+
+    async def update(self, showtime_id: int, showtime_in: ShowtimeUpdate) -> Optional[dict]:
+        """Update a showtime"""
+        data = showtime_in.model_dump(exclude_unset=True, mode='json')
+        if not data:
+            return await self.get_by_id(showtime_id)
+
+        response = self.client.table("showtimes").update(data).eq("id", showtime_id).execute()
+        if response.data:
+            return response.data[0]
+        return None
+
+    async def delete(self, showtime_id: int) -> bool:
+        """Delete a showtime"""
+        response = self.client.table("showtimes").delete().eq("id", showtime_id).execute()
+        return len(response.data) > 0
+
     async def get_by_movie(self, movie_id: int) -> List[dict]:
+        """Get all showtimes for a movie"""
         response = self.client.table("showtimes")\
             .select("*")\
             .eq("movie_id", movie_id)\
-            .order("show_datetime")\
+            .order("start_time")\
             .execute()
         return response.data
 
     async def get_by_id(self, showtime_id: int) -> Optional[dict]:
+        """Get a showtime by ID"""
         response = self.client.table("showtimes")\
             .select("*")\
-            .eq("showtime_id", showtime_id)\
+            .eq("id", showtime_id)\
             .single()\
             .execute()
         return response.data
 
-    async def get_seats(self, showtime_id: int) -> List[dict]:
-        # 1. Get showtime info to know the screen
-        showtime = await self.get_by_id(showtime_id)
-        if not showtime:
-            return []
+    async def get_seats_for_screen(self, screen_id: int, base_price: float) -> List[Dict[str, Any]]:
+        """
+        Get all seats for a screen with their availability status.
+        This is used for showing seat maps in the booking UI.
 
-        screen_name = showtime["screen_name"]
-        base_price = float(showtime["base_price"])
+        Seat statuses:
+        - "available": Not booked
+        - "reserved": Temporarily locked (pending payment)
+        - "sold": Sold/booked
+        - "maintenance": Out of service
+        """
+        try:
+            # Get all seats for this screen
+            seats_response = self.client.table("seats")\
+                .select("*")\
+                .eq("screen_id", screen_id)\
+                .order("row_label")\
+                .order("seat_number")\
+                .execute()
 
-        # 2. Get all seats for this screen
-        seats_response = self.client.table("seats")\
-            .select("*")\
-            .eq("screen_name", screen_name)\
-            .execute()
-        all_seats = seats_response.data
+            if not seats_response.data:
+                return []
 
-        # 3. Get booked seats for this showtime
-        # Need to join with bookings to filter by showtime_id
-        # We can use Supabase's resource embedding if the relationship is defined
-        booked_response = self.client.table("booking_seats")\
-            .select("row_letter, seat_number, bookings!inner(showtime_id)")\
-            .eq("bookings.showtime_id", showtime_id)\
-            .execute()
-        booked_seats = {(s["row_letter"], s["seat_number"]) for s in booked_response.data}
+            # Format the response
+            results = []
+            for seat in seats_response.data:
+                results.append({
+                    "seat_id": seat["id"],
+                    "row_label": seat["row_label"],
+                    "seat_number": seat["seat_number"],
+                    "status": seat["status"],
+                    "price": base_price
+                })
 
-        # 4. Get locked seats for this showtime
-        locked_response = self.client.table("seat_locks")\
-            .select("row_letter, seat_number")\
-            .eq("showtime_id", showtime_id)\
-            .gte("expires_at", datetime.now().isoformat())\
-            .execute()
-        locked_seats = {(s["row_letter"], s["seat_number"]) for s in locked_response.data}
+            return results
+        except Exception as e:
+            logger.error(f"Error getting seats for screen {screen_id}: {e}")
+            raise
 
-        # 5. Map status to seats
-        results = []
-        for seat in all_seats:
-            pos = (seat["row_letter"], seat["seat_number"])
-            status = "available"
-            if pos in booked_seats:
-                status = "booked"
-            elif pos in locked_seats:
-                status = "locked"
+    async def get_screen_occupancy(self, screen_id: int) -> Dict[str, Any]:
+        """
+        Get occupancy statistics for a screen.
+        """
+        try:
+            response = self.client.from_('screen_statistics')\
+                .select('*')\
+                .eq('screen_id', screen_id)\
+                .single()\
+                .execute()
 
-            results.append({
-                "row_letter": seat["row_letter"],
-                "seat_number": seat["seat_number"],
-                "seat_type": seat["seat_type"],
-                "status": status,
-                "price": base_price # Simplify price logic for now
-            })
-
-        return results
+            if response.data:
+                return response.data
+            return {
+                "screen_id": screen_id,
+                "total_seats": 0,
+                "available_seats": 0,
+                "reserved_seats": 0,
+                "sold_seats": 0,
+                "maintenance_seats": 0
+            }
+        except Exception as e:
+            logger.error(f"Error getting occupancy for screen {screen_id}: {e}")
+            raise

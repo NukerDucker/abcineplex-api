@@ -4,27 +4,47 @@ from typing import Optional
 
 # Common fields shared by both
 class PublicContentBase(BaseModel):
-    title: str
+    title: Optional[str] = None
     is_active: bool = True
 
 # --- Hero Carousel ---
 class HeroSlideBase(PublicContentBase):
-    banner_url: HttpUrl
-    content_type: str # movie, event, link
-    target_url: str   # path like /movies/uuid or external https://
-    priority_order: int
+    banner_url: Optional[str] = None
+    content_type: Optional[str] = None
+    target_url: Optional[str] = None
+    display_order: Optional[int] = 0
+
+class HeroSlideCreate(HeroSlideBase):
+    pass
+
+class HeroSlideUpdate(BaseModel):
+    title: Optional[str] = None
+    is_active: Optional[bool] = None
+    banner_url: Optional[HttpUrl] = None
+    content_type: Optional[str] = None
+    target_url: Optional[str] = None
+    display_order: Optional[int] = None
 
 class HeroSlide(HeroSlideBase):
-    id: str
+    id: int
     created_at: datetime
     updated_at: datetime
 
 # --- Promotions & News ---
 class PromotionBase(PublicContentBase):
-    image_url: HttpUrl
-    promo_type: str # news, event, offer
+    image_url: Optional[str] = None
+    promo_type: Optional[str] = None # news, event, offer
+
+class PromotionCreate(PromotionBase):
+    pass
+
+class PromotionUpdate(BaseModel):
+    title: Optional[str] = None
+    is_active: Optional[bool] = None
+    image_url: Optional[str] = None
+    promo_type: Optional[str] = None
 
 class Promotion(PromotionBase):
-    id: str
+    id: int
     created_at: datetime
     updated_at: datetime
