@@ -21,7 +21,7 @@ from app.schemas.booking import (
 )
 from app.crud.booking import CRUDBooking
 from app.core.supabase import supabase
-from app.core.security import get_current_user
+from app.core.security import get_current_user, CurrentUser
 import logging
 
 logger = logging.getLogger(__name__)
@@ -237,12 +237,12 @@ async def cancel_booking(request: CancelBookingRequest):
 
 @router.get("/me", response_model=UserBookingsResponse)
 async def get_my_bookings(
-    current_user: dict = Depends(get_current_user),
+    current_user: CurrentUser = Depends(get_current_user),
     booking_status: Optional[str] = Query(None, alias="status", description="Filter by status (pending, confirmed, cancelled, expired)")
 ):
     """Get all bookings for the currently authenticated user"""
     try:
-        user_id = UUID(current_user["supabase_id"])
+        user_id = UUID(current_user.user_id)
         bookings = await crud_booking.get_user_bookings(user_id, booking_status)
         return UserBookingsResponse(
             bookings=bookings,
@@ -257,7 +257,10 @@ async def get_my_bookings(
 
 
 @router.get("/{booking_id}", response_model=BookingDetail)
-async def get_booking(booking_id: int):
+async def get_booking(
+    booking_id: int,
+    current_user: CurrentUser = Depends(get_current_user)
+):
     """Get detailed booking information including seats"""
     try:
         booking = await crud_booking.get_booking_details(booking_id)
@@ -266,6 +269,15 @@ async def get_booking(booking_id: int):
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Booking not found"
             )
+
+        # Basic Authorization: Owner or Admin
+        if not current_user.is_admin and str(booking.user_id) != current_user.user_id:
+            logger.warning(f"Unauthorized access attempt to booking {booking_id} by user {current_user.user_id}")
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You do not have permission to view this booking"
+            )
+
         return booking
     except HTTPException:
         raise
@@ -278,9 +290,26 @@ async def get_booking(booking_id: int):
 
 
 @router.get("/{booking_id}/tickets")
-async def get_booking_tickets(booking_id: int):
+async def get_booking_tickets(
+    booking_id: int,
+    current_user: CurrentUser = Depends(get_current_user)
+):
     """Get all tickets for a booking (with QR codes)"""
     try:
+        # Check ownership first
+        booking = await crud_booking.get_booking_by_id(booking_id)
+        if not booking:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Booking not found"
+            )
+
+        if not current_user.is_admin and str(booking.get('user_id')) != current_user.user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You do not have permission to view these tickets"
+            )
+
         tickets = await crud_booking.get_tickets_for_booking(booking_id)
         if not tickets:
             raise HTTPException(
@@ -301,15 +330,25 @@ async def get_booking_tickets(booking_id: int):
 @router.get("/user/{user_id}/bookings", response_model=UserBookingsResponse)
 async def get_user_bookings(
     user_id: UUID,
+    current_user: CurrentUser = Depends(get_current_user),
     booking_status: Optional[str] = Query(None, alias="status", description="Filter by status (pending, confirmed, cancelled, expired)")
 ):
     """Get all bookings for a specific user"""
     try:
+        # Authorization: Self or Admin
+        if not current_user.is_admin and str(user_id) != current_user.user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You do not have permission to view this user's bookings"
+            )
+
         bookings = await crud_booking.get_user_bookings(user_id, booking_status)
         return UserBookingsResponse(
             bookings=bookings,
             total_count=len(bookings)
         )
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error getting user bookings: {e}")
         raise HTTPException(
@@ -368,11 +407,18 @@ async def release_expired_reservations():
 
 @router.get("/admin/all")
 async def get_all_bookings(
+    current_user: CurrentUser = Depends(get_current_user),
     booking_status: Optional[str] = Query(None, alias="status", description="Filter by status"),
     limit: int = Query(100, ge=1, le=1000),
     offset: int = Query(0, ge=0)
 ):
     """Admin endpoint: Get all bookings with pagination"""
+    if not current_user.is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin privileges required"
+        )
+
     try:
         bookings = await crud_booking.get_all_bookings(booking_status, limit, offset)
         return {"bookings": bookings, "count": len(bookings)}
@@ -385,8 +431,14 @@ async def get_all_bookings(
 
 
 @router.get("/admin/stats/pending")
-async def get_pending_count():
+async def get_pending_count(current_user: CurrentUser = Depends(get_current_user)):
     """Admin endpoint: Get count of pending bookings"""
+    if not current_user.is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin privileges required"
+        )
+
     try:
         count = await crud_booking.get_pending_bookings_count()
         return {"pending_count": count}

@@ -15,6 +15,7 @@ from app.schemas.booking import (
 import logging
 import asyncio
 import json
+import ast
 
 logger = logging.getLogger(__name__)
 
@@ -30,17 +31,55 @@ class CRUDBooking:
         Extract JSON data from Supabase error when response is bytes.
         Handles the case where Supabase returns bytes that it can't parse.
         """
-        if hasattr(e, 'args') and len(e.args) > 0:
-            error_dict = e.args[0] if isinstance(e.args[0], dict) else None
-            if error_dict and 'details' in error_dict:
-                details = error_dict['details']
-                # Extract JSON from bytes string representation
-                if isinstance(details, str) and (details.startswith("b'") or details.startswith('b"')):
+        # Try to get error_dict from args or attributes
+        error_dict = None
+        if hasattr(e, 'args') and len(e.args) > 0 and isinstance(e.args[0], dict):
+            error_dict = e.args[0]
+        elif hasattr(e, 'details'):
+            # Some exceptions (like APIError) have attributes directly
+            error_dict = {
+                'message': getattr(e, 'message', str(e)),
+                'details': getattr(e, 'details', None),
+                'code': getattr(e, 'code', None)
+            }
+
+        if error_dict and 'details' in error_dict:
+            details = error_dict['details']
+            if not details:
+                return None
+
+            # If details is already a dict
+            if isinstance(details, dict):
+                return details
+
+            # If details is bytes
+            if isinstance(details, bytes):
+                try:
+                    return json.loads(details.decode('utf-8'))
+                except Exception:
+                    pass
+
+            # Extract JSON from bytes string representation (e.g. "b'{\"success\": true}'")
+            if isinstance(details, str):
+                if details.startswith("b'") or details.startswith('b"'):
                     try:
-                        # Remove b' prefix and ' suffix, handle escaped quotes
-                        json_str = details[2:-1].replace("\\'", "'").replace('\\"', '"')
-                        return json.loads(json_str)
-                    except (json.JSONDecodeError, IndexError):
+                        # Use ast.literal_eval to safely convert string representation of bytes
+                        bytes_obj = ast.literal_eval(details)
+                        if isinstance(bytes_obj, bytes):
+                            return json.loads(bytes_obj.decode('utf-8'))
+                    except Exception as eval_err:
+                        logger.debug(f"ast.literal_eval failed: {eval_err}")
+                        # Fallback to manual replacement
+                        try:
+                            json_str = details[2:-1].replace("\\'", "'").replace('\\"', '"')
+                            return json.loads(json_str)
+                        except Exception:
+                            pass
+                else:
+                    # Maybe it's just a JSON string
+                    try:
+                        return json.loads(details)
+                    except Exception:
                         pass
         return None
 

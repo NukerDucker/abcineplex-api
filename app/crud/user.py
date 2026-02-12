@@ -1,12 +1,13 @@
 from supabase import Client
 from typing import List, Optional
+from app.core.exceptions import UnauthorizedException
 import asyncio
-
-# Constants for error messages
-ERROR_NOT_AUTHORIZED = "Not authorized"
 
 
 class CRUDUser:
+    """Optimized user CRUD operations with minimal memory footprint"""
+    __slots__ = ('client',)
+
     def __init__(self, supabase_client: Client):
         self.client = supabase_client
 
@@ -16,8 +17,9 @@ class CRUDUser:
         limit: int = 20,
         is_admin: bool = False
     ) -> List[dict]:
+        """Get multiple users - admin only"""
         if not is_admin:
-            raise ValueError(ERROR_NOT_AUTHORIZED)
+            raise UnauthorizedException()
 
         response = await asyncio.to_thread(
             lambda: self.client.table("users")
@@ -26,50 +28,39 @@ class CRUDUser:
                 .range(skip, skip + limit - 1)
                 .execute()
         )
-        return response.data
+        return response.data or []
 
     async def get_by_id(
         self,
-        user_id: str, # Changed from int to str (UUID)
+        user_id: str,
         current_user_id: str,
         is_admin: bool = False
     ) -> Optional[dict]:
+        """Get user by ID with authorization check"""
         if not is_admin and user_id != current_user_id:
-            raise ValueError(ERROR_NOT_AUTHORIZED)
+            raise UnauthorizedException()
 
         response = await asyncio.to_thread(
             lambda: self.client.table("users")
                 .select("*")
                 .eq("user_id", user_id)
+                .maybe_single()
                 .execute()
         )
 
-        return response.data[0] if response.data else None
+        return response.data
 
-    async def get_by_email(
-        self,
-        email: str,
-    ) -> Optional[dict]:
+    async def get_by_email(self, email: str) -> Optional[dict]:
+        """Get user by email - optimized with maybe_single"""
         response = await asyncio.to_thread(
             lambda: self.client.table("users")
                 .select("*")
                 .eq("email", email)
+                .maybe_single()
                 .execute()
         )
 
-        return response.data[0] if response.data else None
-
-    async def get_me(self) -> Optional[dict]:
-        """Fetches the profile of the currently logged-in user."""
-        auth_user = await asyncio.to_thread(lambda: self.client.auth.get_user())
-        if not auth_user.user:
-            return None
-
-        # We query by the ID provided by Supabase Auth
-        return await self.get_by_id(
-            user_id=auth_user.user.id,
-            current_user_id=auth_user.user.id
-        )
+        return response.data
 
     async def update(
         self,
@@ -78,24 +69,27 @@ class CRUDUser:
         current_user_id: str,
         is_admin: bool = False
     ) -> Optional[dict]:
+        """Update user with safe field filtering"""
         if not is_admin and user_id != current_user_id:
-            raise ValueError(ERROR_NOT_AUTHORIZED)
+            raise UnauthorizedException()
 
-        # Define which fields are safe for a user to change themselves
-        allowed_fields = {"full_name", "phone", "user_name"}
-        safe_data = {k: v for k, v in user_in.items() if k in allowed_fields}
+        # Only allow safe fields for non-admin users
+        allowed_fields = {"full_name", "phone", "user_name"} if not is_admin else None
+        safe_data = {k: v for k, v in user_in.items() if allowed_fields is None or k in allowed_fields}
 
         if not safe_data:
-            return None
+            return await self.get_by_id(user_id, current_user_id, is_admin)
 
         response = await asyncio.to_thread(
             lambda: self.client.table("users")
                 .update(safe_data)
                 .eq("user_id", user_id)
+                .select()
+                .maybe_single()
                 .execute()
         )
 
-        return response.data[0] if response.data else None
+        return response.data
 
     async def delete(
         self,
@@ -103,10 +97,10 @@ class CRUDUser:
         current_user_id: str,
         is_admin: bool = False
     ) -> bool:
+        """Soft delete user"""
         if not is_admin and user_id != current_user_id:
-            raise ValueError(ERROR_NOT_AUTHORIZED)
+            raise UnauthorizedException()
 
-        # Soft delete logic
         response = await asyncio.to_thread(
             lambda: self.client.table("users")
                 .update({"is_active": False})
