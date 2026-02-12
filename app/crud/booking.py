@@ -15,6 +15,8 @@ from app.schemas.booking import (
     ScreenStatistics
 )
 import logging
+import asyncio
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -25,14 +27,35 @@ class CRUDBooking:
     def __init__(self, supabase_client: Client):
         self.client = supabase_client
 
+    def _extract_json_from_error(self, e: Exception) -> Optional[Dict[str, Any]]:
+        """
+        Extract JSON data from Supabase error when response is bytes.
+        Handles the case where Supabase returns bytes that it can't parse.
+        """
+        if hasattr(e, 'args') and len(e.args) > 0:
+            error_dict = e.args[0] if isinstance(e.args[0], dict) else None
+            if error_dict and 'details' in error_dict:
+                details = error_dict['details']
+                # Extract JSON from bytes string representation
+                if isinstance(details, str) and (details.startswith("b'") or details.startswith('b"')):
+                    try:
+                        # Remove b' prefix and ' suffix, handle escaped quotes
+                        json_str = details[2:-1].replace("\\'", "'").replace('\\"', '"')
+                        return json.loads(json_str)
+                    except (json.JSONDecodeError, IndexError):
+                        pass
+        return None
+
     # ========== Seat Operations ==========
 
     async def get_available_seats(self, screen_id: int) -> List[AvailableSeat]:
         """Get all available seats for a screen"""
         try:
-            response = self.client.rpc('get_available_seats', {
-                'p_screen_id': screen_id
-            }).execute()
+            response = await asyncio.to_thread(
+                lambda: self.client.rpc('get_available_seats', {
+                    'p_screen_id': screen_id
+                }).execute()
+            )
 
             if response.data:
                 return [AvailableSeat(**seat) for seat in response.data]
@@ -44,12 +67,14 @@ class CRUDBooking:
     async def get_all_seats_for_screen(self, screen_id: int) -> List[Dict[str, Any]]:
         """Get all seats for a screen (including unavailable)"""
         try:
-            response = self.client.table('seats')\
-                .select('*')\
-                .eq('screen_id', screen_id)\
-                .order('row_label', desc=False)\
-                .order('seat_number', desc=False)\
-                .execute()
+            response = await asyncio.to_thread(
+                lambda: self.client.table('seats')
+                    .select('*')
+                    .eq('screen_id', screen_id)
+                    .order('row_label', desc=False)
+                    .order('seat_number', desc=False)
+                    .execute()
+            )
 
             return response.data if response.data else []
         except Exception as e:
@@ -64,17 +89,26 @@ class CRUDBooking:
         Calls the Supabase RPC function reserve_seats
         """
         try:
-            response = self.client.rpc('reserve_seats', {
-                'p_user_id': str(request.user_id),
-                'p_screen_id': request.screen_id,
-                'p_seat_ids': request.seat_ids,
-                'p_price_per_seat': request.price_per_seat
-            }).execute()
+            response = await asyncio.to_thread(
+                lambda: self.client.rpc('reserve_seats', {
+                    'p_user_id': str(request.user_id),
+                    'p_screen_id': request.screen_id,
+                    'p_seat_ids': request.seat_ids,
+                    'p_price_per_seat': request.price_per_seat
+                }).execute()
+            )
 
             if response.data:
+                # Handle bytes response from Supabase
+                if isinstance(response.data, bytes):
+                    return json.loads(response.data.decode('utf-8'))
                 return response.data
             raise Exception("No data returned from reserve_seats")
         except Exception as e:
+            # Try to extract JSON from error details
+            data = self._extract_json_from_error(e)
+            if data:
+                return data
             logger.error(f"Error reserving seats: {e}")
             raise
 
@@ -84,23 +118,42 @@ class CRUDBooking:
         Calls the Supabase RPC function confirm_payment
         """
         try:
-            response = self.client.rpc('confirm_payment', {
-                'p_booking_id': booking_id
-            }).execute()
+            response = await asyncio.to_thread(
+                lambda: self.client.rpc('confirm_payment', {
+                    'p_booking_id': booking_id
+                }).execute()
+            )
 
             if response.data:
+                # Handle bytes response from Supabase
+                data = response.data
+                if isinstance(data, bytes):
+                    data = json.loads(data.decode('utf-8'))
+
                 # Optionally store payment_intent_id
                 if payment_intent_id:
-                    self.client.table('bookings')\
-                        .update({'payment_intent_id': payment_intent_id})\
-                        .eq('id', booking_id)\
-                        .execute()
+                    await asyncio.to_thread(
+                        lambda: self.client.table('bookings')
+                            .update({'payment_intent_id': payment_intent_id})
+                            .eq('id', booking_id)
+                            .execute()
+                    )
 
-                return response.data
+                return data
             raise Exception("No data returned from confirm_payment")
         except Exception as e:
-            logger.error(f"Error confirming payment: {e}")
-            raise
+            # Try to extract JSON from error details
+            data = self._extract_json_from_error(e)
+            if data:
+                # Optionally store payment_intent_id
+                if payment_intent_id:
+                    await asyncio.to_thread(
+                        lambda: self.client.table('bookings')
+                            .update({'payment_intent_id': payment_intent_id})
+                            .eq('id', booking_id)
+                            .execute()
+                    )
+                return data
 
     async def cancel_booking(self, booking_id: int) -> Dict[str, Any]:
         """
@@ -108,14 +161,23 @@ class CRUDBooking:
         Calls the Supabase RPC function cancel_booking
         """
         try:
-            response = self.client.rpc('cancel_booking', {
-                'p_booking_id': booking_id
-            }).execute()
+            response = await asyncio.to_thread(
+                lambda: self.client.rpc('cancel_booking', {
+                    'p_booking_id': booking_id
+                }).execute()
+            )
 
             if response.data:
+                # Handle bytes response from Supabase
+                if isinstance(response.data, bytes):
+                    return json.loads(response.data.decode('utf-8'))
                 return response.data
             raise Exception("No data returned from cancel_booking")
         except Exception as e:
+            # Try to extract JSON from error details
+            data = self._extract_json_from_error(e)
+            if data:
+                return data
             logger.error(f"Error cancelling booking: {e}")
             raise
 
@@ -125,23 +187,34 @@ class CRUDBooking:
         Calls the Supabase RPC function release_expired_reservations
         """
         try:
-            response = self.client.rpc('release_expired_reservations').execute()
+            response = await asyncio.to_thread(
+                lambda: self.client.rpc('release_expired_reservations').execute()
+            )
 
             if response.data:
+                # Handle bytes response from Supabase
+                if isinstance(response.data, bytes):
+                    return json.loads(response.data.decode('utf-8'))
                 return response.data
             return {'released_count': 0}
         except Exception as e:
+            # Try to extract JSON from error details
+            data = self._extract_json_from_error(e)
+            if data:
+                return data
             logger.error(f"Error releasing expired reservations: {e}")
             raise
 
     async def get_booking_by_id(self, booking_id: int) -> Optional[Dict[str, Any]]:
         """Get booking details by ID"""
         try:
-            response = self.client.table('bookings')\
-                .select('*')\
-                .eq('id', booking_id)\
-                .single()\
-                .execute()
+            response = await asyncio.to_thread(
+                lambda: self.client.table('bookings')
+                    .select('*')
+                    .eq('id', booking_id)
+                    .single()
+                    .execute()
+            )
 
             return response.data if response.data else None
         except Exception as e:
@@ -151,11 +224,13 @@ class CRUDBooking:
     async def get_booking_details(self, booking_id: int) -> Optional[BookingDetail]:
         """Get detailed booking information with seats"""
         try:
-            response = self.client.from_('booking_details')\
-                .select('*')\
-                .eq('booking_id', booking_id)\
-                .single()\
-                .execute()
+            response = await asyncio.to_thread(
+                lambda: self.client.from_('booking_details')
+                    .select('*')
+                    .eq('booking_id', booking_id)
+                    .single()
+                    .execute()
+            )
 
             if response.data:
                 return BookingDetail(**response.data)
@@ -167,15 +242,18 @@ class CRUDBooking:
     async def get_user_bookings(self, user_id: UUID, status: Optional[str] = None) -> List[BookingDetail]:
         """Get all bookings for a user"""
         try:
-            query = self.client.from_('booking_details')\
-                .select('*')\
-                .eq('user_id', str(user_id))\
-                .order('created_at', desc=True)
+            def _fetch():
+                query = self.client.from_('booking_details')\
+                    .select('*')\
+                    .eq('user_id', str(user_id))\
+                    .order('created_at', desc=True)
 
-            if status:
-                query = query.eq('booking_status', status)
+                if status:
+                    query = query.eq('booking_status', status)
 
-            response = query.execute()
+                return query.execute()
+
+            response = await asyncio.to_thread(_fetch)
 
             if response.data:
                 return [BookingDetail(**booking) for booking in response.data]
@@ -187,10 +265,12 @@ class CRUDBooking:
     async def get_tickets_for_booking(self, booking_id: int) -> List[Dict[str, Any]]:
         """Get all tickets for a booking"""
         try:
-            response = self.client.table('tickets')\
-                .select('*, seats(row_label, seat_number)')\
-                .eq('booking_id', booking_id)\
-                .execute()
+            response = await asyncio.to_thread(
+                lambda: self.client.table('tickets')
+                    .select('*, seats(row_label, seat_number)')
+                    .eq('booking_id', booking_id)
+                    .execute()
+            )
 
             if response.data:
                 # Format the data
@@ -217,9 +297,11 @@ class CRUDBooking:
     async def get_all_screens(self) -> List[ScreenInfo]:
         """Get all screens"""
         try:
-            response = self.client.table('screens')\
-                .select('*')\
-                .execute()
+            response = await asyncio.to_thread(
+                lambda: self.client.table('screens')
+                    .select('*')
+                    .execute()
+            )
 
             if response.data:
                 return [ScreenInfo(
@@ -236,11 +318,13 @@ class CRUDBooking:
     async def get_screen_by_id(self, screen_id: int) -> Optional[ScreenInfo]:
         """Get screen by ID"""
         try:
-            response = self.client.table('screens')\
-                .select('*')\
-                .eq('id', screen_id)\
-                .single()\
-                .execute()
+            response = await asyncio.to_thread(
+                lambda: self.client.table('screens')
+                    .select('*')
+                    .eq('id', screen_id)
+                    .single()
+                    .execute()
+            )
 
             if response.data:
                 screen = response.data
@@ -258,9 +342,11 @@ class CRUDBooking:
     async def get_screen_statistics(self) -> List[ScreenStatistics]:
         """Get occupancy statistics for all screens"""
         try:
-            response = self.client.from_('screen_statistics')\
-                .select('*')\
-                .execute()
+            response = await asyncio.to_thread(
+                lambda: self.client.from_('screen_statistics')
+                    .select('*')
+                    .execute()
+            )
 
             if response.data:
                 return [ScreenStatistics(**stat) for stat in response.data]
@@ -274,10 +360,12 @@ class CRUDBooking:
     async def update_booking_status(self, booking_id: int, status: str) -> Optional[Dict[str, Any]]:
         """Update booking status (admin only)"""
         try:
-            response = self.client.table('bookings')\
-                .update({'status': status})\
-                .eq('id', booking_id)\
-                .execute()
+            response = await asyncio.to_thread(
+                lambda: self.client.table('bookings')
+                    .update({'status': status})
+                    .eq('id', booking_id)
+                    .execute()
+            )
 
             if response.data:
                 return response.data[0]
@@ -294,16 +382,19 @@ class CRUDBooking:
     ) -> List[Dict[str, Any]]:
         """Get all bookings (admin only)"""
         try:
-            query = self.client.table('bookings')\
-                .select('*')\
-                .order('created_at', desc=True)\
-                .limit(limit)\
-                .offset(offset)
+            def _fetch():
+                query = self.client.table('bookings')\
+                    .select('*')\
+                    .order('created_at', desc=True)\
+                    .limit(limit)\
+                    .offset(offset)
 
-            if status:
-                query = query.eq('status', status)
+                if status:
+                    query = query.eq('status', status)
 
-            response = query.execute()
+                return query.execute()
+
+            response = await asyncio.to_thread(_fetch)
             return response.data if response.data else []
         except Exception as e:
             logger.error(f"Error getting all bookings: {e}")
@@ -312,10 +403,12 @@ class CRUDBooking:
     async def get_pending_bookings_count(self) -> int:
         """Get count of pending bookings"""
         try:
-            response = self.client.table('bookings')\
-                .select('id', count='exact')\
-                .eq('status', 'pending')\
-                .execute()
+            response = await asyncio.to_thread(
+                lambda: self.client.table('bookings')
+                    .select('id', count='exact')
+                    .eq('status', 'pending')
+                    .execute()
+            )
 
             return response.count if response.count else 0
         except Exception as e:

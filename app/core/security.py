@@ -1,62 +1,55 @@
 """
-Security utilities for JWT token handling
+Security utilities for Supabase JWT token verification
 """
-from datetime import datetime, timedelta, timezone
 from typing import Optional
-from jose import JWTError, jwt
 from fastapi import HTTPException, status, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from app.core.config import settings
+from app.core.supabase import supabase
+import logging
+
+logger = logging.getLogger(__name__)
 
 security = HTTPBearer()
 
 
-def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
-    """Create a JWT access token"""
-    to_encode = data.copy()
-
-    if expires_delta:
-        expire = datetime.now(timezone.utc) + expires_delta
-    else:
-        expire = datetime.now(timezone.utc) + timedelta(minutes=settings.access_token_expire_minutes)
-
-    to_encode.update({"exp": expire})
-    encoded_jwt = jwt.encode(to_encode, settings.secret_key, algorithm=settings.algorithm)
-
-    return encoded_jwt
-
-
-def verify_token(token: str) -> dict:
-    """Verify and decode a JWT token"""
-    try:
-        payload = jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
-        return payload
-    except JWTError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Could not validate credentials",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
-
 def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict:
-    """Dependency to get current user from JWT token"""
+    """
+    Dependency to get current user from Supabase access token.
+    The frontend authenticates via Supabase Auth and sends the access_token
+    as a Bearer token. We verify it using Supabase's get_user().
+    """
     token = credentials.credentials
-    payload = verify_token(token)
 
-    user_id = payload.get("sub")
-    if user_id is None:
+    try:
+        user_response = supabase.auth.get_user(token)
+        supabase_user = user_response.user
+
+        if supabase_user is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Could not validate credentials",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
+        # Extract user metadata
+        metadata = supabase_user.user_metadata or {}
+
+        return {
+            "supabase_id": supabase_user.id,
+            "email": supabase_user.email,
+            "full_name": metadata.get("full_name", ""),
+            "user_name": metadata.get("user_name", ""),
+            "is_admin": metadata.get("is_admin", False),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Token verification error: {e}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Could not validate credentials",
             headers={"WWW-Authenticate": "Bearer"},
         )
-
-    return {
-        "user_id": int(user_id),
-        "email": payload.get("email"),
-        "is_admin": payload.get("is_admin", False)
-    }
 
 
 def get_current_user_optional(

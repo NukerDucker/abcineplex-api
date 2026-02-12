@@ -21,6 +21,7 @@ from app.schemas.booking import (
 )
 from app.crud.booking import CRUDBooking
 from app.core.supabase import supabase
+from app.core.security import get_current_user
 import logging
 
 logger = logging.getLogger(__name__)
@@ -151,10 +152,24 @@ async def confirm_payment(request: ConfirmPaymentRequest):
                 detail="Booking not found"
             )
 
+        logger.info(f"Confirming payment for booking {request.booking_id}, current status: {booking.get('status')}")
+
+        # If already confirmed, return the tickets (idempotent behavior)
+        if booking['status'] == 'confirmed':
+            logger.info(f"Booking {request.booking_id} already confirmed, returning existing tickets")
+            tickets = await crud_booking.get_tickets_for_booking(request.booking_id)
+            return ConfirmPaymentResponse(
+                success=True,
+                message="Payment already confirmed",
+                booking_id=request.booking_id,
+                tickets=tickets
+            )
+
         if booking['status'] != 'pending':
+            logger.warning(f"Cannot confirm payment - booking {request.booking_id} status is '{booking['status']}', expected 'pending' or 'confirmed'")
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Booking is not pending. Current status: {booking['status']}"
+                detail=f"Booking cannot be confirmed. Current status: {booking['status']}"
             )
 
         # Confirm payment
@@ -220,6 +235,27 @@ async def cancel_booking(request: CancelBookingRequest):
 
 # ========== Booking Information Endpoints ==========
 
+@router.get("/me", response_model=UserBookingsResponse)
+async def get_my_bookings(
+    current_user: dict = Depends(get_current_user),
+    booking_status: Optional[str] = Query(None, alias="status", description="Filter by status (pending, confirmed, cancelled, expired)")
+):
+    """Get all bookings for the currently authenticated user"""
+    try:
+        user_id = UUID(current_user["supabase_id"])
+        bookings = await crud_booking.get_user_bookings(user_id, booking_status)
+        return UserBookingsResponse(
+            bookings=bookings,
+            total_count=len(bookings)
+        )
+    except Exception as e:
+        logger.error(f"Error getting user bookings: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to fetch user bookings: {str(e)}"
+        )
+
+
 @router.get("/{booking_id}", response_model=BookingDetail)
 async def get_booking(booking_id: int):
     """Get detailed booking information including seats"""
@@ -265,11 +301,11 @@ async def get_booking_tickets(booking_id: int):
 @router.get("/user/{user_id}/bookings", response_model=UserBookingsResponse)
 async def get_user_bookings(
     user_id: UUID,
-    status: Optional[str] = Query(None, description="Filter by status (pending, confirmed, cancelled, expired)")
+    booking_status: Optional[str] = Query(None, alias="status", description="Filter by status (pending, confirmed, cancelled, expired)")
 ):
     """Get all bookings for a specific user"""
     try:
-        bookings = await crud_booking.get_user_bookings(user_id, status)
+        bookings = await crud_booking.get_user_bookings(user_id, booking_status)
         return UserBookingsResponse(
             bookings=bookings,
             total_count=len(bookings)
@@ -332,13 +368,13 @@ async def release_expired_reservations():
 
 @router.get("/admin/all")
 async def get_all_bookings(
-    status: Optional[str] = Query(None, description="Filter by status"),
+    booking_status: Optional[str] = Query(None, alias="status", description="Filter by status"),
     limit: int = Query(100, ge=1, le=1000),
     offset: int = Query(0, ge=0)
 ):
     """Admin endpoint: Get all bookings with pagination"""
     try:
-        bookings = await crud_booking.get_all_bookings(status, limit, offset)
+        bookings = await crud_booking.get_all_bookings(booking_status, limit, offset)
         return {"bookings": bookings, "count": len(bookings)}
     except Exception as e:
         logger.error(f"Error getting all bookings: {e}")

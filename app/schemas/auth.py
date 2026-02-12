@@ -1,27 +1,9 @@
 """
-Auth schemas for request/response models
+Auth schemas for response models.
+Authentication is handled by Supabase Auth on the client side.
 """
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel
 from typing import Optional
-
-
-class LoginRequest(BaseModel):
-    email: EmailStr
-    password: str
-
-
-class RegisterRequest(BaseModel):
-    email: EmailStr
-    password: str
-    user_name: str
-    full_name: str
-    phone: Optional[str] = ""
-
-
-class TokenResponse(BaseModel):
-    access_token: str
-    token_type: str = "bearer"
-    user: dict
 
 
 class UserResponse(BaseModel):

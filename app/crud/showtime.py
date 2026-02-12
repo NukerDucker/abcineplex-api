@@ -3,6 +3,7 @@ from typing import List, Optional, Dict, Any
 from datetime import datetime
 from app.schemas.showtime import ShowtimeCreate, ShowtimeUpdate
 import logging
+import asyncio
 
 logger = logging.getLogger(__name__)
 
@@ -14,7 +15,9 @@ class CRUDShowtime:
     async def create(self, showtime: ShowtimeCreate) -> dict:
         """Create a new showtime"""
         data = showtime.model_dump(mode='json')
-        response = self.client.table("showtimes").insert(data).execute()
+        response = await asyncio.to_thread(
+            lambda: self.client.table("showtimes").insert(data).execute()
+        )
         return response.data[0]
 
     async def update(self, showtime_id: int, showtime_in: ShowtimeUpdate) -> Optional[dict]:
@@ -23,32 +26,40 @@ class CRUDShowtime:
         if not data:
             return await self.get_by_id(showtime_id)
 
-        response = self.client.table("showtimes").update(data).eq("id", showtime_id).execute()
+        response = await asyncio.to_thread(
+            lambda: self.client.table("showtimes").update(data).eq("id", showtime_id).execute()
+        )
         if response.data:
             return response.data[0]
         return None
 
     async def delete(self, showtime_id: int) -> bool:
         """Delete a showtime"""
-        response = self.client.table("showtimes").delete().eq("id", showtime_id).execute()
+        response = await asyncio.to_thread(
+            lambda: self.client.table("showtimes").delete().eq("id", showtime_id).execute()
+        )
         return len(response.data) > 0
 
     async def get_by_movie(self, movie_id: int) -> List[dict]:
         """Get all showtimes for a movie"""
-        response = self.client.table("showtimes")\
-            .select("*")\
-            .eq("movie_id", movie_id)\
-            .order("start_time")\
-            .execute()
+        response = await asyncio.to_thread(
+            lambda: self.client.table("showtimes")
+                .select("*")
+                .eq("movie_id", movie_id)
+                .order("start_time")
+                .execute()
+        )
         return response.data
 
     async def get_by_id(self, showtime_id: int) -> Optional[dict]:
         """Get a showtime by ID"""
-        response = self.client.table("showtimes")\
-            .select("*")\
-            .eq("id", showtime_id)\
-            .single()\
-            .execute()
+        response = await asyncio.to_thread(
+            lambda: self.client.table("showtimes")
+                .select("*")
+                .eq("id", showtime_id)
+                .single()
+                .execute()
+        )
         return response.data
 
     async def get_seats_for_screen(self, screen_id: int, base_price: float) -> List[Dict[str, Any]]:
@@ -64,12 +75,14 @@ class CRUDShowtime:
         """
         try:
             # Get all seats for this screen
-            seats_response = self.client.table("seats")\
-                .select("*")\
-                .eq("screen_id", screen_id)\
-                .order("row_label")\
-                .order("seat_number")\
-                .execute()
+            seats_response = await asyncio.to_thread(
+                lambda: self.client.table("seats")
+                    .select("*")
+                    .eq("screen_id", screen_id)
+                    .order("row_label")
+                    .order("seat_number")
+                    .execute()
+            )
 
             if not seats_response.data:
                 return []

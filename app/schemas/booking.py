@@ -77,10 +77,7 @@ class ConfirmPaymentResponse(BaseModel):
     """Response after confirming payment"""
     success: bool
     message: str
-    booking_id: Optional[str] = None
-    tickets: Optional[List[dict]] = None
-
-
+    booking_id: Optional[int] = None
     tickets: Optional[List[dict]] = None
 
 
@@ -133,6 +130,10 @@ class BookingDetail(BaseModel):
     created_at: datetime
     screen_name: str
     seats: List[str]  # e.g., ["A1", "A2", "A3"]
+    movie_title: Optional[str] = None
+    poster_url: Optional[str] = None
+    showtime_start: Optional[str] = None
+    showtime_id: Optional[int] = None
 
 
 class TicketInfo(BaseModel):
