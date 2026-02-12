@@ -13,6 +13,9 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# Constants for error messages
+ERROR_USER_NOT_FOUND = "User not found"
+
 router = APIRouter(prefix="/api/users", tags=["users"])
 crud_user = CRUDUser(supabase)
 
@@ -52,7 +55,7 @@ async def get_user_by_email(
         user = await crud_user.get_by_email(email)
 
         if not user:
-            raise HTTPException(status_code=404, detail="User not found")
+            raise HTTPException(status_code=404, detail=ERROR_USER_NOT_FOUND)
 
         user.pop("password_hash", None)
         return user
@@ -82,7 +85,7 @@ async def get_user(
         )
 
         if not user:
-            raise HTTPException(status_code=404, detail="User not found")
+            raise HTTPException(status_code=404, detail=ERROR_USER_NOT_FOUND)
 
         return user
 
@@ -113,7 +116,7 @@ async def update_user(
         )
 
         if not updated:
-            raise HTTPException(status_code=404, detail="User not found or no valid fields to update")
+            raise HTTPException(status_code=404, detail=ERROR_USER_NOT_FOUND + " or no valid fields to update")
 
         return updated
 
@@ -142,7 +145,7 @@ async def delete_user(
         )
 
         if not success:
-            raise HTTPException(status_code=404, detail="User not found")
+            raise HTTPException(status_code=404, detail=ERROR_USER_NOT_FOUND)
 
         return {"message": "User deactivated successfully"}
 

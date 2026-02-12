@@ -4,6 +4,9 @@ from app.crud.movie import CRUDMovie
 from app.schemas.movie import Movie, MovieCreate, MovieUpdate
 from app.core.supabase import supabase
 
+# Constants for error messages
+ERROR_MOVIE_NOT_FOUND = "Movie not found"
+
 router = APIRouter(prefix="/api/movies", tags=["movies"])
 crud_movie = CRUDMovie(supabase)
 
@@ -19,7 +22,7 @@ async def update_movie(movie_id: int, movie: MovieUpdate):
     try:
         updated = await crud_movie.update(movie_id, movie)
         if not updated:
-            raise HTTPException(status_code=404, detail="Movie not found")
+            raise HTTPException(status_code=404, detail=ERROR_MOVIE_NOT_FOUND)
         return updated
     except HTTPException:
         raise
@@ -31,7 +34,7 @@ async def delete_movie(movie_id: int):
     try:
         success = await crud_movie.delete(movie_id)
         if not success:
-            raise HTTPException(status_code=404, detail="Movie not found")
+            raise HTTPException(status_code=404, detail=ERROR_MOVIE_NOT_FOUND)
         return {"status": "success", "message": "Movie deleted"}
     except HTTPException:
         raise
@@ -42,7 +45,7 @@ async def delete_movie(movie_id: int):
 async def get_movie(movie_id: int):
     movie = await crud_movie.get_by_id(movie_id)
     if not movie:
-        raise HTTPException(status_code=404, detail="Movie not found")
+        raise HTTPException(status_code=404, detail=ERROR_MOVIE_NOT_FOUND)
     return movie
 
 @router.get("", response_model=List[Movie])

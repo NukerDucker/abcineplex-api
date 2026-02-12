@@ -2,6 +2,10 @@ from supabase import Client
 from typing import List, Optional
 import asyncio
 
+# Constants for error messages
+ERROR_NOT_AUTHORIZED = "Not authorized"
+
+
 class CRUDUser:
     def __init__(self, supabase_client: Client):
         self.client = supabase_client
@@ -13,7 +17,7 @@ class CRUDUser:
         is_admin: bool = False
     ) -> List[dict]:
         if not is_admin:
-            raise Exception("Not authorized")
+            raise ValueError(ERROR_NOT_AUTHORIZED)
 
         response = await asyncio.to_thread(
             lambda: self.client.table("users")
@@ -31,7 +35,7 @@ class CRUDUser:
         is_admin: bool = False
     ) -> Optional[dict]:
         if not is_admin and user_id != current_user_id:
-            raise Exception("Not authorized")
+            raise ValueError(ERROR_NOT_AUTHORIZED)
 
         response = await asyncio.to_thread(
             lambda: self.client.table("users")
@@ -75,7 +79,7 @@ class CRUDUser:
         is_admin: bool = False
     ) -> Optional[dict]:
         if not is_admin and user_id != current_user_id:
-            raise Exception("Not authorized")
+            raise ValueError(ERROR_NOT_AUTHORIZED)
 
         # Define which fields are safe for a user to change themselves
         allowed_fields = {"full_name", "phone", "user_name"}
@@ -100,7 +104,7 @@ class CRUDUser:
         is_admin: bool = False
     ) -> bool:
         if not is_admin and user_id != current_user_id:
-            raise Exception("Not authorized")
+            raise ValueError(ERROR_NOT_AUTHORIZED)
 
         # Soft delete logic
         response = await asyncio.to_thread(

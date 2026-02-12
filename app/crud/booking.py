@@ -7,9 +7,7 @@ from uuid import UUID
 from supabase import Client
 from app.schemas.booking import (
     ReserveSeatRequest,
-    ConfirmPaymentRequest,
     BookingDetail,
-    TicketInfo,
     AvailableSeat,
     ScreenInfo,
     ScreenStatistics
@@ -103,7 +101,7 @@ class CRUDBooking:
                 if isinstance(response.data, bytes):
                     return json.loads(response.data.decode('utf-8'))
                 return response.data
-            raise Exception("No data returned from reserve_seats")
+            raise ValueError("No data returned from reserve_seats")
         except Exception as e:
             # Try to extract JSON from error details
             data = self._extract_json_from_error(e)
@@ -140,7 +138,7 @@ class CRUDBooking:
                     )
 
                 return data
-            raise Exception("No data returned from confirm_payment")
+            raise ValueError("No data returned from confirm_payment")
         except Exception as e:
             # Try to extract JSON from error details
             data = self._extract_json_from_error(e)
@@ -154,6 +152,9 @@ class CRUDBooking:
                             .execute()
                     )
                 return data
+
+            logger.error(f"Error confirming payment: {e}")
+            raise
 
     async def cancel_booking(self, booking_id: int) -> Dict[str, Any]:
         """
@@ -172,7 +173,7 @@ class CRUDBooking:
                 if isinstance(response.data, bytes):
                     return json.loads(response.data.decode('utf-8'))
                 return response.data
-            raise Exception("No data returned from cancel_booking")
+            raise ValueError("No data returned from cancel_booking")
         except Exception as e:
             # Try to extract JSON from error details
             data = self._extract_json_from_error(e)

@@ -19,23 +19,25 @@ crud_user = CRUDUser(supabase)
 
 
 @router.get("/me", response_model=UserResponse)
-def get_current_user_info(current_user: dict = Depends(get_current_user)):
+async def get_current_user_info(current_user: dict = Depends(get_current_user)):
     """
     Get current authenticated user info.
     Requires a valid Supabase access token as Bearer token.
     """
     try:
         # Try to find existing user in our users table by email
-        user = crud_user.get_by_email(current_user["email"])
+        user = await crud_user.get_by_email(current_user["email"])
 
         if not user:
             # User exists in Supabase Auth but not in our users table yet.
-            # Auto-create a profile from their Supabase metadata.
-            user = crud_user.create_from_supabase(
-                supabase_id=current_user["supabase_id"],
+            # Return basic info from Supabase Auth
+            return UserResponse(
+                user_id=current_user["supabase_id"],
                 email=current_user["email"],
-                full_name=current_user.get("full_name", ""),
                 user_name=current_user.get("user_name", current_user["email"].split("@")[0]),
+                full_name=current_user.get("full_name", ""),
+                phone=None,
+                loyalty_points=0,
             )
 
         return UserResponse(
