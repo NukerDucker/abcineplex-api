@@ -11,6 +11,7 @@ from app.routes.public import router as public_router
 from app.routes.bookings import router as bookings_router
 from app.routes.users import router as users_router
 from app.routes.auth import router as auth_router
+from app.routes.review import router as reviews_router
 
 from app.core.exceptions import (
     AppException,
@@ -65,6 +66,7 @@ app.include_router(showtimes_router)
 app.include_router(public_router)
 app.include_router(bookings_router)
 app.include_router(users_router)
+app.include_router(reviews_router)
 
 
 @app.get("/")

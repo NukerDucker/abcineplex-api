@@ -10,11 +10,10 @@ security = HTTPBearer()
 
 
 class CurrentUser:
-    """Optimized user data structure"""
     __slots__ = ('user_id', 'email', 'full_name', 'user_name', 'loyalty_points', 'is_admin')
 
     def __init__(self, user_id: str, email: str, full_name: str = "",
-                 user_name: str = "", loyalty_points: int = 0, is_admin: bool = False):
+        user_name: str = "", loyalty_points: int = 0, is_admin: bool = False):
         self.user_id = user_id
         self.email = email
         self.full_name = full_name
@@ -24,10 +23,6 @@ class CurrentUser:
 
 
 async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> CurrentUser:
-    """
-    One-trip optimized authentication dependency.
-    Non-blocking async calls to prevent frontend hangs.
-    """
     token = credentials.credentials
 
     try:
