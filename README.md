@@ -54,14 +54,15 @@ A comprehensive FastAPI-based backend system for cinema booking management with 
 - **Authentication**: Supabase Auth (JWT)
 - **Validation**: Pydantic 2.12.5
 - **Server**: Uvicorn 0.40.0
-- **Environment**: Python 3.8+
+- **Package Manager**: [uv](https://github.com/astral-sh/uv)
+- **Environment**: Python 3.13+
 
 ## 📦 Prerequisites
 
-- Python 3.8 or higher
+- Python 3.13 or higher
+- [uv](https://github.com/astral-sh/uv) (Recommended)
 - Supabase account and project
 - Git (for version control)
-- Pip (Python package manager)
 
 ## ⚙️ Installation
 
@@ -72,21 +73,26 @@ git clone <repository-url>
 cd abcineplex-api
 ```
 
-### 2. Create Virtual Environment
+### 2. Setup Environment and Dependencies
 
+Using `uv` (Recommended):
 ```bash
-# Windows
-python -m venv venv
-venv\Scripts\activate
-
-# macOS/Linux
-python3 -m venv venv
-source venv/bin/activate
+# This will create a virtual environment and install all dependencies
+uv sync
 ```
 
-### 3. Install Dependencies
-
+Alternatively, using standard `pip`:
 ```bash
+# Create Virtual Environment
+python -m venv .venv
+
+# Windows
+.venv\Scripts\activate
+
+# macOS/Linux
+source .venv/bin/activate
+
+# Install Dependencies
 pip install -r requirements.txt
 ```
 
@@ -103,18 +109,16 @@ cp .env.example .env
 ### 2. Edit `.env` File
 
 ```env
-# Supabase Database Connection
+# Supabase Database Connection (Direct Postgres connection)
 DATABASE_URL=postgresql://postgres:[YOUR-PASSWORD]@db.[YOUR-PROJECT-REF].supabase.co:5432/postgres
 
 # Supabase Project Configuration
 SUPABASE_URL=https://[YOUR-PROJECT-REF].supabase.co
 SUPABASE_ANON_KEY=[YOUR-ANON-KEY]
-SUPABASE_PUBLISHABLE_KEY=[YOUR-PUBLISHABLE-KEY]
 
 # Application Security
 SECRET_KEY=your-super-secret-key-min-32-characters
-ALGORITHM=HS256
-ACCESS_TOKEN_EXPIRE_MINUTES=30
+DEBUG=True
 ```
 
 **Where to find your Supabase credentials:**
@@ -163,12 +167,20 @@ You'll need to create the following tables and RPC functions in your Supabase da
 
 ### Start the API Server
 
+Using the helper script (Windows/PowerShell):
+```powershell
+./dev.ps1
+```
+
+Using `uv` directly:
 ```bash
 # Development mode with auto-reload
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+uv run python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
 
-# Production mode
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4
+Using standard `python`:
+```bash
+python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 ### Start the Expiry Worker (Required)
@@ -176,7 +188,10 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4
 The expiry worker must run separately to automatically release expired seat reservations:
 
 ```bash
-# In a new terminal
+# Using uv
+uv run python -m app.workers.expiry_worker
+
+# Using standard python
 python -m app.workers.expiry_worker
 ```
 
