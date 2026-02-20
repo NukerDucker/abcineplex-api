@@ -12,6 +12,9 @@ from app.routes.bookings import router as bookings_router
 from app.routes.users import router as users_router
 from app.routes.auth import router as auth_router
 from app.routes.review import router as reviews_router
+from app.routes.products import router as products_router
+from app.routes.orders import router as orders_router
+from app.routes.profiles import router as profiles_router
 
 from app.core.exceptions import (
     AppException,
@@ -67,6 +70,9 @@ app.include_router(public_router)
 app.include_router(bookings_router)
 app.include_router(users_router)
 app.include_router(reviews_router)
+app.include_router(products_router)
+app.include_router(orders_router)
+app.include_router(profiles_router)
 
 
 @app.get("/")

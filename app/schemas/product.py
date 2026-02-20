@@ -28,6 +28,14 @@ class ProductBase(BaseModel):
 class ProductCreate(ProductBase):
     pass
 
+class ProductUpdate(BaseModel):
+    name: Optional[str] = None
+    category_id: Optional[UUID] = None
+    price: Optional[Decimal] = Field(None, max_digits=10, decimal_places=2)
+    description: Optional[str] = None
+    image_url: Optional[HttpUrl] = None
+    in_stock: Optional[bool] = None
+
 class Product(ProductBase):
     id: UUID
     created_at: datetime
