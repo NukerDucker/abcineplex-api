@@ -8,7 +8,6 @@ import logging
 logger = logging.getLogger(__name__)
 security = HTTPBearer()
 
-
 class CurrentUser:
     __slots__ = ('user_id', 'email', 'full_name', 'user_name', 'loyalty_points', 'is_admin')
 
@@ -26,7 +25,6 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
     token = credentials.credentials
 
     try:
-        # Verify token and get Supabase user (non-blocking)
         user_response = await asyncio.to_thread(lambda: supabase.auth.get_user(token))
         supabase_user = user_response.user
 
@@ -35,7 +33,6 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
 
         metadata = supabase_user.user_metadata or {}
 
-        # Try to get DB profile (single non-blocking query)
         try:
             # Note: is_admin is checked from user_metadata first as the column might not exist in users table
             result = await asyncio.to_thread(
@@ -50,12 +47,10 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
             logger.warning(f"Could not fetch user profile for {supabase_user.email}: {e}")
             db_user = None
 
-        # Admin status can come from metadata (Supabase) or DB
         is_admin = metadata.get("is_admin", False)
         if not is_admin and db_user:
             is_admin = db_user.get("is_admin", False)
 
-        # Build optimized user object
         return CurrentUser(
             user_id=supabase_user.id,
             email=supabase_user.email,

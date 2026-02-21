@@ -1,7 +1,3 @@
-"""
-CRUD operations for booking system
-Handles database operations for seats, bookings, and tickets
-"""
 from typing import Optional, List, Dict, Any
 from uuid import UUID
 from supabase import Client
@@ -18,7 +14,6 @@ import json
 import ast
 
 logger = logging.getLogger(__name__)
-
 
 class CRUDBooking:
     """CRUD operations for bookings using Supabase RPC functions"""
@@ -48,11 +43,9 @@ class CRUDBooking:
             if not details:
                 return None
 
-            # If details is already a dict
             if isinstance(details, dict):
                 return details
 
-            # If details is bytes
             if isinstance(details, bytes):
                 try:
                     return json.loads(details.decode('utf-8'))

@@ -5,7 +5,6 @@ import asyncio
 
 
 class CRUDMovie:
-    """Optimized movie CRUD with memory-efficient operations"""
     __slots__ = ('client',)
 
     def __init__(self, supabase_client: Client):
