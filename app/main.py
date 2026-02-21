@@ -32,7 +32,6 @@ app = FastAPI(
     version="2.0.0"
 )
 
-# Setup CORS - allow all origins during development
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[

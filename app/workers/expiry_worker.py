@@ -19,7 +19,6 @@ logger = logging.getLogger(__name__)
 
 crud_booking = CRUDBooking(supabase)
 
-
 async def release_expired_task():
     """Task to release expired reservations"""
     try:
@@ -48,7 +47,7 @@ async def run_worker(interval_seconds: int = 60):
     Args:
         interval_seconds: How often to check for expired reservations (default: 60 seconds)
     """
-    logger.info(f"🚀 Expiry worker started - checking every {interval_seconds} seconds")
+    logger.info(f"Expiry worker started - checking every {interval_seconds} seconds")
 
     while True:
         try:
@@ -61,5 +60,4 @@ async def run_worker(interval_seconds: int = 60):
 
 
 if __name__ == "__main__":
-    # Run the worker
     asyncio.run(run_worker(interval_seconds=60))
