@@ -14,7 +14,7 @@ class CRUDMovie:
         """Create new movie, returns created record"""
         data = movie.model_dump(mode='json')
         response = await asyncio.to_thread(
-            lambda: self.client.table("movies").insert(data).select().execute()
+            lambda: self.client.table("movies").insert(data).execute()
         )
         return response.data[0]
 

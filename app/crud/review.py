@@ -35,7 +35,7 @@ class CRUDReview:
     async def create(self, review_in: dict) -> dict:
         """Create new review"""
         response = await asyncio.to_thread(
-            lambda: self.client.table("reviews").insert(review_in).select().execute()
+            lambda: self.client.table("reviews").insert(review_in).execute()
         )
         if not response.data:
             raise ValueError("Create failed")

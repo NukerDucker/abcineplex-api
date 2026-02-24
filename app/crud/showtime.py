@@ -18,7 +18,7 @@ class CRUDShowtime:
         """Create a new showtime"""
         data = showtime.model_dump(mode='json')
         response = await asyncio.to_thread(
-            lambda: self.client.table("showtimes").insert(data).select().execute()
+            lambda: self.client.table("showtimes").insert(data).execute()
         )
         return response.data[0]
 

@@ -23,7 +23,7 @@ class CRUDProduct:
         """Create new product, returns created record"""
         data = product.model_dump(mode='json')
         response = await asyncio.to_thread(
-            lambda: self.client.table("products").insert(data).select().execute()
+            lambda: self.client.table("products").insert(data).execute()
         )
         return response.data[0]
 
@@ -88,7 +88,7 @@ class CRUDProduct:
         """Create new product category"""
         data = category.model_dump(mode='json')
         response = await asyncio.to_thread(
-            lambda: self.client.table("categories").insert(data).select().execute()
+            lambda: self.client.table("categories").insert(data).execute()
         )
         return response.data[0]
 

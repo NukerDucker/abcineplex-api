@@ -15,7 +15,7 @@ class CRUDPublic:
         """Create hero carousel slide"""
         data = slide.model_dump(mode='json')
         response = await asyncio.to_thread(
-            lambda: self.client.table("hero_carousel").insert(data).select().execute()
+            lambda: self.client.table("hero_carousel").insert(data).execute()
         )
         return response.data[0]
 
@@ -57,7 +57,7 @@ class CRUDPublic:
         """Create promotional event"""
         data = promo.model_dump(mode='json')
         response = await asyncio.to_thread(
-            lambda: self.client.table("promo_events").insert(data).select().execute()
+            lambda: self.client.table("promo_events").insert(data).execute()
         )
         return response.data[0]
 
