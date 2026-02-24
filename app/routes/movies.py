@@ -1,23 +1,24 @@
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Depends
 from typing import List, Optional
 from app.crud.movie import CRUDMovie
 from app.schemas.movie import Movie, MovieCreate, MovieUpdate
 from app.core.supabase import supabase
 from app.core.exceptions import NotFoundException
+from app.core.security import get_admin_user
 
 router = APIRouter(prefix="/api/movies", tags=["movies"])
 crud_movie = CRUDMovie(supabase)
 
 
 @router.post("", response_model=Movie)
-async def create_movie(movie: MovieCreate):
-    """Create a new movie"""
+async def create_movie(movie: MovieCreate, _admin: object = Depends(get_admin_user)):
+    """Create a new movie - Admin only"""
     return await crud_movie.create(movie)
 
 
 @router.put("/{movie_id}", response_model=Movie)
-async def update_movie(movie_id: int, movie: MovieUpdate):
-    """Update existing movie"""
+async def update_movie(movie_id: int, movie: MovieUpdate, _admin: object = Depends(get_admin_user)):
+    """Update existing movie - Admin only"""
     updated = await crud_movie.update(movie_id, movie)
     if not updated:
         raise NotFoundException("Movie", str(movie_id))
@@ -25,8 +26,8 @@ async def update_movie(movie_id: int, movie: MovieUpdate):
 
 
 @router.delete("/{movie_id}")
-async def delete_movie(movie_id: int):
-    """Delete a movie"""
+async def delete_movie(movie_id: int, _admin: object = Depends(get_admin_user)):
+    """Delete a movie - Admin only"""
     success = await crud_movie.delete(movie_id)
     if not success:
         raise NotFoundException("Movie", str(movie_id))

@@ -1,23 +1,24 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from typing import List, Dict, Any
 from app.crud.showtime import CRUDShowtime
 from app.schemas.showtime import Showtime, ShowtimeCreate, ShowtimeUpdate
 from app.core.supabase import supabase
 from app.core.exceptions import NotFoundException
+from app.core.security import get_admin_user
 
 router = APIRouter(prefix="/api/showtimes", tags=["showtimes"])
 crud_showtime = CRUDShowtime(supabase)
 
 
 @router.post("", response_model=Showtime)
-async def create_showtime(showtime: ShowtimeCreate):
-    """Create new showtime"""
+async def create_showtime(showtime: ShowtimeCreate, _admin: object = Depends(get_admin_user)):
+    """Create new showtime - Admin only"""
     return await crud_showtime.create(showtime)
 
 
 @router.put("/{showtime_id}", response_model=Showtime)
-async def update_showtime(showtime_id: int, showtime: ShowtimeUpdate):
-    """Update showtime"""
+async def update_showtime(showtime_id: int, showtime: ShowtimeUpdate, _admin: object = Depends(get_admin_user)):
+    """Update showtime - Admin only"""
     updated = await crud_showtime.update(showtime_id, showtime)
     if not updated:
         raise NotFoundException("Showtime", str(showtime_id))
@@ -25,8 +26,8 @@ async def update_showtime(showtime_id: int, showtime: ShowtimeUpdate):
 
 
 @router.delete("/{showtime_id}")
-async def delete_showtime(showtime_id: int):
-    """Delete showtime"""
+async def delete_showtime(showtime_id: int, _admin: object = Depends(get_admin_user)):
+    """Delete showtime - Admin only"""
     success = await crud_showtime.delete(showtime_id)
     if not success:
         raise NotFoundException("Showtime", str(showtime_id))
