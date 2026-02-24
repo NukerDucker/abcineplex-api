@@ -27,8 +27,8 @@ class HeroSlideUpdate(BaseModel):
 
 class HeroSlide(HeroSlideBase):
     id: int
-    created_at: datetime
-    updated_at: datetime
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
 
 # --- Promotions & News ---
 class PromotionBase(PublicContentBase):
@@ -46,5 +46,5 @@ class PromotionUpdate(BaseModel):
 
 class Promotion(PromotionBase):
     id: int
-    created_at: datetime
-    updated_at: datetime
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None

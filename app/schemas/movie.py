@@ -31,8 +31,8 @@ class MovieUpdate(MovieBase):
 class Movie(MovieBase):
     """Schema for reading data (response body)"""
     id: int
-    created_at: datetime
-    updated_at: datetime
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True

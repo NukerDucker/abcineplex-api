@@ -38,7 +38,7 @@ class ProductUpdate(BaseModel):
 
 class Product(ProductBase):
     id: UUID
-    created_at: datetime
+    created_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True

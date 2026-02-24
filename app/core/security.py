@@ -34,22 +34,24 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
         metadata = supabase_user.user_metadata or {}
 
         try:
-            # Note: is_admin is checked from user_metadata first as the column might not exist in users table
+            # Fetch user record from users table
             result = await asyncio.to_thread(
                 lambda: supabase.table("users")
-                    .select("user_id, loyalty_points")
+                    .select("loyalty_points, is_admin")
                     .eq("email", supabase_user.email)
                     .execute()
             )
 
             db_user = result.data[0] if result.data and len(result.data) > 0 else None
         except Exception as e:
-            logger.warning(f"Could not fetch user profile for {supabase_user.email}: {e}")
+            logger.warning(f"Could not fetch user record for {supabase_user.email}: {e}")
             db_user = None
 
         is_admin = metadata.get("is_admin", False)
-        if not is_admin and db_user:
-            is_admin = db_user.get("is_admin", False)
+        if db_user:
+            is_admin = db_user.get("is_admin", is_admin)
+
+        logger.info(f"User {supabase_user.email} - is_admin from metadata: {metadata.get('is_admin', False)}, from users table: {db_user.get('is_admin') if db_user else 'N/A'}, final: {is_admin}")
 
         return CurrentUser(
             user_id=supabase_user.id,

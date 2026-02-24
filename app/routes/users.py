@@ -15,6 +15,45 @@ router = APIRouter(prefix="/api/users", tags=["users"])
 crud_user = CRUDUser(supabase)
 
 
+@router.get("/me")
+async def get_current_user_profile(
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """Get current user's profile with admin status from users table"""
+    import asyncio
+    try:
+        response = await asyncio.to_thread(
+            lambda: supabase.table("users")
+                .select("user_id, email, user_name, full_name, loyalty_points, is_admin, is_active")
+                .eq("email", current_user.email)
+                .maybe_single()
+                .execute()
+        )
+        if response.data:
+            return response.data
+        # Fallback to current user info
+        return {
+            "user_id": current_user.user_id,
+            "email": current_user.email,
+            "user_name": current_user.user_name,
+            "full_name": current_user.full_name,
+            "loyalty_points": current_user.loyalty_points,
+            "is_admin": current_user.is_admin,
+            "is_active": True
+        }
+    except Exception as e:
+        # Fallback if query fails
+        return {
+            "user_id": current_user.user_id,
+            "email": current_user.email,
+            "user_name": current_user.user_name,
+            "full_name": current_user.full_name,
+            "loyalty_points": current_user.loyalty_points,
+            "is_admin": current_user.is_admin,
+            "is_active": True
+        }
+
+
 @router.get("/")
 async def get_users(
     skip: int = 0,
