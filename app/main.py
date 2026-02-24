@@ -13,7 +13,6 @@ from app.routes.auth import router as auth_router
 from app.routes.review import router as reviews_router
 from app.routes.products import router as products_router
 from app.routes.orders import router as orders_router
-from app.routes.profiles import router as profiles_router
 from app.core.config import settings
 from app.core.exceptions import (
     AppException,
@@ -50,7 +49,7 @@ app.add_exception_handler(Exception, generic_exception_handler)
 for router in (
     auth_router, movies_router, showtimes_router, public_router,
     bookings_router, users_router, reviews_router, products_router,
-    orders_router, profiles_router,
+    orders_router,
 ):
     app.include_router(router)
 

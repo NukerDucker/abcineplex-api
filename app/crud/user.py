@@ -28,7 +28,7 @@ class CRUDUser:
                 .range(skip, skip + limit - 1)
                 .execute()
         )
-        return response.data or []
+        return response.data if response and hasattr(response, 'data') else []
 
     async def get_by_id(
         self,
@@ -40,27 +40,35 @@ class CRUDUser:
         if not is_admin and user_id != current_user_id:
             raise UnauthorizedException()
 
-        response = await asyncio.to_thread(
-            lambda: self.client.table("users")
-                .select("*")
-                .eq("user_id", user_id)
-                .maybe_single()
-                .execute()
-        )
-
-        return response.data
+        try:
+            response = await asyncio.to_thread(
+                lambda: self.client.table("users")
+                    .select("*")
+                    .eq("user_id", user_id)
+                    .maybe_single()
+                    .execute()
+            )
+            if response and hasattr(response, 'data'):
+                return response.data
+            return None
+        except Exception as e:
+            print(f"Error fetching user {user_id}: {e}")
+            return None
 
     async def get_by_email(self, email: str) -> Optional[dict]:
         """Get user by email - optimized with maybe_single"""
-        response = await asyncio.to_thread(
-            lambda: self.client.table("users")
-                .select("*")
-                .eq("email", email)
-                .maybe_single()
-                .execute()
-        )
-
-        return response.data
+        try:
+            response = await asyncio.to_thread(
+                lambda: self.client.table("users")
+                    .select("*")
+                    .eq("email", email)
+                    .maybe_single()
+                    .execute()
+            )
+            return response.data if response and hasattr(response, 'data') else None
+        except Exception as e:
+            print(f"Error fetching user by email {email}: {e}")
+            return None
 
     async def update(
         self,
@@ -89,7 +97,7 @@ class CRUDUser:
                 .execute()
         )
 
-        return response.data
+        return response.data if response and hasattr(response, 'data') else None
 
     async def delete(
         self,
@@ -108,4 +116,4 @@ class CRUDUser:
                 .execute()
         )
 
-        return bool(response.data)
+        return bool(response and hasattr(response, 'data') and response.data)
