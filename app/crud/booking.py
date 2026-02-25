@@ -122,7 +122,7 @@ class CRUDBooking:
             response = await asyncio.to_thread(
                 lambda: self.client.rpc('reserve_seats', {
                     'p_user_id': str(request.user_id),
-                    'p_screen_id': request.screen_id,
+                    'p_showtime_id': request.showtime_id,
                     'p_seat_ids': request.seat_ids,
                     'p_price_per_seat': request.price_per_seat
                 }).execute()

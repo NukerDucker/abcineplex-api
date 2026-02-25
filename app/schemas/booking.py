@@ -42,7 +42,7 @@ class AvailableSeat(BaseModel):
 class ReserveSeatRequest(BaseModel):
     """Request to reserve seats (Step 1: User proceeds to payment)"""
     user_id: UUID = Field(..., description="User UUID from Supabase auth")
-    screen_id: int = Field(..., description="Screen ID")
+    showtime_id: int = Field(..., description="Showtime ID")
     seat_ids: List[int] = Field(..., min_length=1, max_length=10, description="List of seat IDs to reserve")
     price_per_seat: float = Field(default=15.00, gt=0, description="Price per seat in USD")
 
@@ -50,7 +50,7 @@ class ReserveSeatRequest(BaseModel):
         json_schema_extra = {
             "example": {
                 "user_id": "123e4567-e89b-12d3-a456-426614174000",
-                "screen_id": 1,
+                "showtime_id": 1,
                 "seat_ids": [1, 2, 3],
                 "price_per_seat": 15.00
             }
@@ -94,7 +94,7 @@ class CancelBookingResponse(BaseModel):
 
 # ===== Booking Models =====
 class BookingBase(BaseModel):
-    screen_id: int
+    showtime_id: int
     total_amount: float
 
 
@@ -128,12 +128,12 @@ class BookingDetail(BaseModel):
     total_amount: float
     payment_deadline: datetime
     created_at: datetime
+    showtime_id: int
     screen_name: str
     seats: List[str]  # e.g., ["A1", "A2", "A3"]
     movie_title: Optional[str] = None
     poster_url: Optional[str] = None
     showtime_start: Optional[str] = None
-    showtime_id: Optional[int] = None
 
 
 class TicketInfo(BaseModel):
