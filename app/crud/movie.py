@@ -2,6 +2,9 @@ from supabase import Client
 from typing import List, Optional
 from app.schemas.movie import MovieCreate, MovieUpdate
 import asyncio
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class CRUDMovie:
@@ -11,7 +14,6 @@ class CRUDMovie:
         self.client = supabase_client
 
     async def create(self, movie: MovieCreate) -> dict:
-        """Create new movie, returns created record"""
         data = movie.model_dump(mode='json')
         response = await asyncio.to_thread(
             lambda: self.client.table("movies").insert(data).execute()
@@ -19,11 +21,9 @@ class CRUDMovie:
         return response.data[0]
 
     async def update(self, movie_id: int, movie_in: MovieUpdate) -> Optional[dict]:
-        """Update movie, returns updated record or existing if no changes"""
         data = movie_in.model_dump(exclude_unset=True, mode='json')
         if not data:
             return await self.get_by_id(movie_id)
-
         response = await asyncio.to_thread(
             lambda: self.client.table("movies")
                 .update(data)
@@ -35,30 +35,12 @@ class CRUDMovie:
         return response.data
 
     async def delete(self, movie_id: int) -> bool:
-        """Delete movie, returns success status"""
         response = await asyncio.to_thread(
             lambda: self.client.table("movies").delete().eq("id", movie_id).execute()
         )
         return bool(response.data)
 
-    async def get_multi(
-        self,
-        skip: int = 0,
-        limit: int = 20,
-        status: Optional[str] = None
-    ) -> List[dict]:
-        """Get movies with optional status filter"""
-        def _fetch():
-            query = self.client.table("movies").select("*")
-            if status:
-                query = query.eq("release_status", status)
-            return query.range(skip, skip + limit - 1).execute()
-
-        response = await asyncio.to_thread(_fetch)
-        return response.data or []
-
     async def get_by_id(self, movie_id: int) -> Optional[dict]:
-        """Get movie by ID with safe fallback"""
         response = await asyncio.to_thread(
             lambda: self.client.table("movies")
                 .select("*")
@@ -67,3 +49,57 @@ class CRUDMovie:
                 .execute()
         )
         return response.data
+
+    async def get_multi(
+        self,
+        page: int = 1,
+        limit: int = 20,
+        status: Optional[str] = None,
+        genre: Optional[str] = None,
+        search: Optional[str] = None,
+    ) -> tuple[List[dict], int]:
+        """Return (rows, total_count) with optional status/genre/search filters."""
+        offset = (page - 1) * limit
+
+        def _fetch():
+            query = self.client.table("movies").select("*", count="exact")
+            # status: spec uses now_showing/upcoming/all; DB uses release_status
+            if status and status != "all":
+                query = query.eq("release_status", status)
+            # genre filter against array column
+            if genre:
+                query = query.contains("genres", [genre])
+            # title search (case-insensitive)
+            if search:
+                query = query.ilike("title", f"%{search}%")
+            return query.range(offset, offset + limit - 1).execute()
+
+        response = await asyncio.to_thread(_fetch)
+        rows = response.data or []
+        total = response.count or len(rows)
+        return rows, total
+
+    async def get_showtimes_for_movie(
+        self,
+        movie_id: int,
+        from_date: str,
+        to_date: str,
+    ) -> List[dict]:
+        """Get showtimes for a movie within [from_date, to_date].
+
+        Joins screens table to get theatre name and seat counts.
+        """
+        try:
+            response = await asyncio.to_thread(
+                lambda: self.client.table("showtimes")
+                    .select("*, screens(name, total_seats)")
+                    .eq("movie_id", movie_id)
+                    .gte("start_time", from_date)
+                    .lte("start_time", to_date)
+                    .order("start_time")
+                    .execute()
+            )
+            return response.data or []
+        except Exception as e:
+            logger.error(f"Failed to fetch showtimes for movie {movie_id}: {e}")
+            return []
