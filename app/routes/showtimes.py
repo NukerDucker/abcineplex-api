@@ -1,29 +1,43 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query, HTTPException, status
 from typing import List, Optional
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
+from uuid import UUID
+import asyncio
+import logging
 
 from app.crud.showtime import CRUDShowtime
+from app.crud.booking import CRUDBooking
 from app.schemas.showtime import (
     Showtime, ShowtimeCreate, ShowtimeUpdate,
     ShowtimeDetail, MovieRef, TheatreRef, TicketPrices,
     SeatMapResponse, SeatLayout, SeatInMap, _STATUS_MAP,
 )
+from app.schemas.seat import (
+    HoldRequest, HoldResponse, ReleaseHoldRequest, HoldStatusResponse,
+    MAX_SEATS_PER_HOLD,
+)
+from app.schemas.booking import ReserveSeatRequest
 from app.core.supabase import supabase_admin
-from app.core.exceptions import NotFoundException
-from app.core.security import get_admin_user
+from app.core.exceptions import NotFoundException, AppException
+from app.core.security import get_current_user, get_admin_user, CurrentUser
 from app.core.calculations import calc_raqs, calc_ttc
+
+logger = logging.getLogger(__name__)
+
+_UTC_SUFFIX = "+00:00"
 
 router = APIRouter(prefix="/api/v1/showtimes", tags=["showtimes"])
 crud_showtime = CRUDShowtime(supabase_admin)
+crud_booking = CRUDBooking(supabase_admin)
 
 
-# ── Private helpers (reduce route cognitive complexity) ───────────────────────
+# ── Private helpers ───────────────────────────────────────────────────────────
 
 def _parse_start_time(raw: Optional[str | datetime]) -> Optional[datetime]:
     if not raw:
         return None
     if isinstance(raw, str):
-        return datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        return datetime.fromisoformat(raw.replace("Z", _UTC_SUFFIX))
     return raw
 
 
@@ -33,8 +47,7 @@ def _derive_times(
     if not start_dt:
         return None, None
     end_dt = start_dt + timedelta(minutes=runtime)
-    end_credits = end_dt + timedelta(minutes=credits_min)
-    return end_dt, end_credits
+    return end_dt, end_dt + timedelta(minutes=credits_min)
 
 
 def _movie_raqs_ttc(movie_row: dict) -> tuple[float, int]:
@@ -47,7 +60,7 @@ def _movie_raqs_ttc(movie_row: dict) -> tuple[float, int]:
     return calc_raqs(rating, votes, rel_date), calc_ttc(runtime, credits_min)
 
 
-# ── Public endpoints ──────────────────────────────────────────────────────────
+# ── Public: showtime detail & seat map ───────────────────────────────────────
 
 @router.get("/{showtime_id}", response_model=ShowtimeDetail)
 async def get_showtime(showtime_id: int):
@@ -104,7 +117,6 @@ async def get_showtime_seats(showtime_id: int):
         raise NotFoundException("Screen for showtime", str(showtime_id))
 
     raw_seats = await crud_showtime.get_seat_map(screen_id)
-
     seats: list[SeatInMap] = []
     rows_seen: set[str] = set()
     max_seat_num = 0
@@ -126,6 +138,136 @@ async def get_showtime_seats(showtime_id: int):
         theatre_id=screen_id,
         layout=SeatLayout(rows=sorted(rows_seen), seats_per_row=max_seat_num),
         seats=seats,
+    )
+
+
+# ── Seat hold endpoints (5.5) ─────────────────────────────────────────────────
+
+@router.post("/{showtime_id}/seats/hold", response_model=HoldResponse)
+async def hold_seats(
+    showtime_id: int,
+    body: HoldRequest,
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """Place a 5-minute hold on selected seats.
+
+    Implementation: DB-backed via reserve_seats RPC (payment_deadline = now+5min).
+    hold_id is the resulting booking/reservation ID.
+    """
+    if len(body.seat_ids) > MAX_SEATS_PER_HOLD:
+        raise AppException(
+            f"Cannot hold more than {MAX_SEATS_PER_HOLD} seats per transaction", 400
+        )
+
+    # Get base_price from showtime to satisfy RPC requirement
+    showtime = await crud_showtime.get_by_id(showtime_id)
+    if not showtime:
+        raise NotFoundException("Showtime", str(showtime_id))
+    price = float(showtime.get("ticket_price_normal") or showtime.get("base_price") or 0)
+
+    req = ReserveSeatRequest(
+        user_id=UUID(current_user.user_id),
+        showtime_id=showtime_id,
+        seat_ids=body.seat_ids,
+        price_per_seat=price,
+    )
+    result = await crud_booking.reserve_seats(req)
+
+    if not result.get("success"):
+        error = result.get("error", "Seats unavailable")
+        unavailable = result.get("unavailable_seats", [])
+        if unavailable:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={"message": error, "unavailable_seats": unavailable},
+            )
+        raise AppException(error, 400)
+
+    hold_id = str(result["booking_id"])
+    expires_at_raw = result.get("payment_deadline")
+    if isinstance(expires_at_raw, str):
+        expires_at = datetime.fromisoformat(expires_at_raw.replace("Z", _UTC_SUFFIX))
+    else:
+        expires_at = expires_at_raw or datetime.now(timezone.utc) + timedelta(seconds=300)
+
+    now = datetime.now(timezone.utc)
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    expires_in = max(0, int((expires_at - now).total_seconds()))
+
+    return HoldResponse(
+        hold_id=hold_id,
+        seat_ids=body.seat_ids,
+        expires_at=expires_at,
+        expires_in_seconds=expires_in,
+    )
+
+
+@router.delete("/{showtime_id}/seats/hold")
+async def release_hold(
+    showtime_id: int,  # kept for URL symmetry; hold_id is the real identifier
+    body: ReleaseHoldRequest,
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """Release a seat hold manually (e.g., user navigates back)."""
+    try:
+        hold_id = int(body.hold_id)
+    except ValueError:
+        raise AppException("Invalid hold_id", 400)
+
+    # Verify ownership before releasing
+    booking = await crud_booking.get_booking_by_id(hold_id)
+    if not booking:
+        raise NotFoundException("Hold", body.hold_id)
+    if str(booking.get("user_id")) != current_user.user_id and not current_user.is_admin:
+        raise AppException("Not authorised to release this hold", 403)
+
+    result = await crud_booking.cancel_booking(hold_id)
+    if not result.get("success"):
+        raise AppException(result.get("error", "Failed to release hold"), 400)
+
+    return {"message": "Hold released"}
+
+
+@router.get("/{showtime_id}/seats/hold/status", response_model=HoldStatusResponse)
+async def get_hold_status(
+    showtime_id: int,
+    hold_id: str = Query(..., description="Hold ID returned by POST /seats/hold"),
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """Check hold expiry status (for countdown timer on frontend)."""
+    try:
+        hold_id_int = int(hold_id)
+    except ValueError:
+        raise AppException("Invalid hold_id", 400)
+
+    booking = await crud_booking.get_booking_by_id(hold_id_int)
+    if not booking:
+        return HoldStatusResponse(hold_id=hold_id, is_active=False, expires_in_seconds=0)
+
+    if booking.get("status") != "pending":
+        return HoldStatusResponse(hold_id=hold_id, is_active=False, expires_in_seconds=0)
+
+    deadline_raw = booking.get("payment_deadline")
+    if not deadline_raw:
+        return HoldStatusResponse(hold_id=hold_id, is_active=False, expires_in_seconds=0)
+
+    if isinstance(deadline_raw, str):
+        deadline = datetime.fromisoformat(deadline_raw.replace("Z", _UTC_SUFFIX))
+    else:
+        deadline = deadline_raw
+
+    now = datetime.now(timezone.utc)
+    if deadline.tzinfo is None:
+        deadline = deadline.replace(tzinfo=timezone.utc)
+
+    remaining = int((deadline - now).total_seconds())
+    is_active = remaining > 0
+
+    return HoldStatusResponse(
+        hold_id=hold_id,
+        is_active=is_active,
+        expires_in_seconds=max(0, remaining),
     )
 
 
