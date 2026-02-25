@@ -4,6 +4,8 @@ from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 import logging
 
+logging.basicConfig(level=logging.INFO)
+
 from app.routes.movies import router as movies_router
 from app.routes.showtimes import router as showtimes_router
 from app.routes.public import router as public_router

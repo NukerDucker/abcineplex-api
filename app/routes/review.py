@@ -8,12 +8,12 @@ from app.schemas.review import (
     ReviewLikeResponse
 )
 from app.crud.review import CRUDReview
-from app.core.supabase import supabase
+from app.core.supabase import supabase_admin
 from app.core.security import get_current_user, CurrentUser
 from app.core.exceptions import NotFoundException, AppException
 
 router = APIRouter(prefix="/api/reviews", tags=["reviews"])
-crud_review = CRUDReview(supabase)
+crud_review = CRUDReview(supabase_admin)
 
 
 # -------- GET REVIEWS (WITH TOTAL COUNT) --------

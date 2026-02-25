@@ -2,12 +2,12 @@ from fastapi import APIRouter, Depends
 from typing import List, Dict, Any
 from app.crud.showtime import CRUDShowtime
 from app.schemas.showtime import Showtime, ShowtimeCreate, ShowtimeUpdate
-from app.core.supabase import supabase
+from app.core.supabase import supabase_admin
 from app.core.exceptions import NotFoundException
 from app.core.security import get_admin_user
 
 router = APIRouter(prefix="/api/showtimes", tags=["showtimes"])
-crud_showtime = CRUDShowtime(supabase)
+crud_showtime = CRUDShowtime(supabase_admin)
 
 
 @router.post("", response_model=Showtime)

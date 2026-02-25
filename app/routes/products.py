@@ -11,12 +11,12 @@ from app.schemas.product import (
     Product, ProductCreate, ProductUpdate,
     Category, CategoryBase
 )
-from app.core.supabase import supabase
+from app.core.supabase import supabase_admin
 from app.core.security import get_current_user, CurrentUser
 from app.core.exceptions import NotFoundException
 
 router = APIRouter(prefix="/api/products", tags=["products"])
-crud_product = CRUDProduct(supabase)
+crud_product = CRUDProduct(supabase_admin)
 
 
 # ========== Category Endpoints (must be before {product_id} routes) ==========

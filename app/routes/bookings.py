@@ -20,14 +20,14 @@ from app.schemas.booking import (
     ExpiryWorkerResponse
 )
 from app.crud.booking import CRUDBooking
-from app.core.supabase import supabase
+from app.core.supabase import supabase_admin
 from app.core.security import get_current_user, CurrentUser
 import logging
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/bookings", tags=["bookings"])
-crud_booking = CRUDBooking(supabase)
+crud_booking = CRUDBooking(supabase_admin)
 
 
 # ========== Seat Selection Endpoints ==========

@@ -2,12 +2,12 @@ from fastapi import APIRouter, Depends
 from typing import List
 from app.crud.public import CRUDPublic
 from app.schemas.public import HeroSlide, HeroSlideCreate, HeroSlideUpdate, Promotion, PromotionCreate, PromotionUpdate
-from app.core.supabase import supabase
+from app.core.supabase import supabase_admin
 from app.core.exceptions import NotFoundException
 from app.core.security import get_admin_user
 
 router = APIRouter(prefix="/api", tags=["public"])
-crud_public = CRUDPublic(supabase)
+crud_public = CRUDPublic(supabase_admin)
 
 
 @router.post("/hero-carousel", response_model=HeroSlide)

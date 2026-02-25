@@ -2,12 +2,12 @@ from fastapi import APIRouter, Query, Depends
 from typing import List, Optional
 from app.crud.movie import CRUDMovie
 from app.schemas.movie import Movie, MovieCreate, MovieUpdate
-from app.core.supabase import supabase
+from app.core.supabase import supabase_admin
 from app.core.exceptions import NotFoundException
 from app.core.security import get_admin_user
 
 router = APIRouter(prefix="/api/movies", tags=["movies"])
-crud_movie = CRUDMovie(supabase)
+crud_movie = CRUDMovie(supabase_admin)
 
 
 @router.post("", response_model=Movie)

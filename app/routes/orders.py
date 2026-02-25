@@ -8,12 +8,12 @@ from uuid import UUID
 
 from app.crud.order import CRUDOrder
 from app.schemas.order import OrderCreate, OrderResponse, OrderStatus
-from app.core.supabase import supabase
+from app.core.supabase import supabase_admin
 from app.core.security import get_current_user, CurrentUser
 from app.core.exceptions import NotFoundException, UnauthorizedException
 
 router = APIRouter(prefix="/api/orders", tags=["orders"])
-crud_order = CRUDOrder(supabase)
+crud_order = CRUDOrder(supabase_admin)
 
 
 @router.post("/", response_model=OrderResponse)
