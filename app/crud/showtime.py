@@ -96,6 +96,33 @@ class CRUDShowtime:
             for seat in response.data
         ]
 
+    async def get_detail(self, showtime_id: int) -> Optional[Dict[str, Any]]:
+        """Get a showtime with movie and screen joined — for GET /showtimes/:id."""
+        response = await asyncio.to_thread(
+            lambda: self.client.table("showtimes")
+                .select(
+                    "*, "
+                    "movies(id, title, duration_minutes, imdb_score, rating_count, release_date, credits_duration_minutes), "
+                    "screens(id, name, total_seats)"
+                )
+                .eq("id", showtime_id)
+                .maybe_single()
+                .execute()
+        )
+        return response.data
+
+    async def get_seat_map(self, screen_id: int) -> List[Dict[str, Any]]:
+        """Get all seats for a screen ordered for seat-map rendering."""
+        response = await asyncio.to_thread(
+            lambda: self.client.table("seats")
+                .select("id, row_label, seat_number, seat_type, status")
+                .eq("screen_id", screen_id)
+                .order("row_label")
+                .order("seat_number")
+                .execute()
+        )
+        return response.data or []
+
     async def get_screen_occupancy(self, screen_id: int) -> Dict[str, Any]:
         """Get occupancy statistics for a screen with fallback"""
         try:
