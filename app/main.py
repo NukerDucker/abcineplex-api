@@ -28,8 +28,10 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="ABCineplex API",
-    description="Movie booking system API",
+    description="Movie booking system API — ABCineplex Group 4, KMITL",
     version="1.0.0",
+    docs_url="/docs",
+    redoc_url="/redoc",
 )
 
 # CORS
