@@ -12,8 +12,8 @@ from app.schemas.product import (
     Category, CategoryBase
 )
 from app.core.supabase import supabase_admin
-from app.core.security import get_current_user, CurrentUser
-from app.core.exceptions import NotFoundException
+from app.core.security import get_current_user, get_admin_user, CurrentUser
+from app.core.exceptions import NotFoundException, UnauthorizedException
 
 router = APIRouter(prefix="/api/v1/products", tags=["products"])
 crud_product = CRUDProduct(supabase_admin)
@@ -24,12 +24,9 @@ crud_product = CRUDProduct(supabase_admin)
 @router.post("/categories", response_model=Category)
 async def create_category(
     category: CategoryBase,
-    current_user: CurrentUser = Depends(get_current_user),
+    _: CurrentUser = Depends(get_admin_user),
 ):
     """Create product category (admin only)"""
-    if not current_user.is_admin:
-        raise NotFoundException("You are not authorized to create categories")
-
     return await crud_product.create_category(category)
 
 
@@ -51,18 +48,20 @@ async def get_category(category_id: str):
     return category
 
 
-@router.put("/categories/{category_id}", response_model=Category)
+@router.patch("/categories/{category_id}", response_model=Category)
 async def update_category(
     category_id: str,
     category_in: CategoryBase,
-    current_user: CurrentUser = Depends(get_current_user),
+    _: CurrentUser = Depends(get_admin_user),
 ):
     """Update category (admin only)"""
-    if not current_user.is_admin:
-        raise NotFoundException("You are not authorized to update categories")
+    try:
+        category_uuid = UUID(category_id)
+    except ValueError:
+        raise NotFoundException("Category", category_id)
 
     data = category_in.model_dump(exclude_unset=True, mode='json')
-    updated = await crud_product.update_category(UUID(category_id), data)
+    updated = await crud_product.update_category(category_uuid, data)
     if not updated:
         raise NotFoundException("Category", category_id)
     return updated
@@ -71,13 +70,15 @@ async def update_category(
 @router.delete("/categories/{category_id}")
 async def delete_category(
     category_id: str,
-    current_user: CurrentUser = Depends(get_current_user),
+    _: CurrentUser = Depends(get_admin_user),
 ):
     """Delete category (admin only)"""
-    if not current_user.is_admin:
-        raise NotFoundException("You are not authorized to delete categories")
+    try:
+        category_uuid = UUID(category_id)
+    except ValueError:
+        raise NotFoundException("Category", category_id)
 
-    success = await crud_product.delete_category(UUID(category_id))
+    success = await crud_product.delete_category(category_uuid)
     if not success:
         raise NotFoundException("Category", category_id)
     return {"status": "success"}
@@ -88,12 +89,9 @@ async def delete_category(
 @router.post("/", response_model=Product)
 async def create_product(
     product: ProductCreate,
-    current_user: CurrentUser = Depends(get_current_user),
+    _: CurrentUser = Depends(get_admin_user),
 ):
     """Create new product (admin only)"""
-    if not current_user.is_admin:
-        raise NotFoundException("You are not authorized to create products")
-
     return await crud_product.create_product(product)
 
 
@@ -118,18 +116,20 @@ async def get_product(product_id: str):
     return product
 
 
-@router.put("/{product_id}", response_model=Product)
+@router.patch("/{product_id}", response_model=Product)
 async def update_product(
     product_id: str,
     product_in: ProductUpdate,
-    current_user: CurrentUser = Depends(get_current_user),
+    _: CurrentUser = Depends(get_admin_user),
 ):
     """Update product (admin only)"""
-    if not current_user.is_admin:
-        raise NotFoundException("You are not authorized to update products")
+    try:
+        product_uuid = UUID(product_id)
+    except ValueError:
+        raise NotFoundException("Product", product_id)
 
     data = product_in.model_dump(exclude_unset=True, mode='json')
-    updated = await crud_product.update_product(UUID(product_id), data)
+    updated = await crud_product.update_product(product_uuid, data)
     if not updated:
         raise NotFoundException("Product", product_id)
     return updated
@@ -138,13 +138,15 @@ async def update_product(
 @router.delete("/{product_id}")
 async def delete_product(
     product_id: str,
-    current_user: CurrentUser = Depends(get_current_user),
+    _: CurrentUser = Depends(get_admin_user),
 ):
     """Delete product (admin only)"""
-    if not current_user.is_admin:
-        raise NotFoundException("You are not authorized to delete products")
+    try:
+        product_uuid = UUID(product_id)
+    except ValueError:
+        raise NotFoundException("Product", product_id)
 
-    success = await crud_product.delete_product(UUID(product_id))
+    success = await crud_product.delete_product(product_uuid)
     if not success:
         raise NotFoundException("Product", product_id)
     return {"status": "success"}
