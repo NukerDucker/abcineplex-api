@@ -9,8 +9,9 @@ class MovieCreate(BaseModel):
     title: str
     release_date: date
     imdb_score: Optional[float] = None
+    rate: str
+    runtime_minutes: int
     duration_minutes: int
-    content_rating: Optional[str] = None
     director: Optional[str] = None
     starring: Optional[List[str]] = []
     synopsis: Optional[str] = None
@@ -22,7 +23,10 @@ class MovieCreate(BaseModel):
     tag_event: Optional[str] = None
     release_status: str = "upcoming"
     genres: Optional[List[str]] = []
-
+    rating_tmdb: float
+    imdb_score: float
+    release_date: str
+    credits_duration_minutes: int
 
 class MovieUpdate(BaseModel):
     """All optional for partial updates (PATCH semantics)."""
