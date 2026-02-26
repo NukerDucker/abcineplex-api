@@ -147,16 +147,7 @@ async def get_my_points(current_user: CurrentUser = Depends(get_current_user)):
     return UserPointsResponse(current_points=current_points, transactions=txns)
 
 # ── Admin: manage all users ───────────────────────────────────────────────────
-
-@router.get("/", response_model=List[AdminUserResponse])
-async def list_users(
-    skip: int = Query(0, ge=0),
-    limit: int = Query(20, ge=1, le=100),
-    _: CurrentUser = Depends(get_admin_user),
-):
-    """List all users — admin only."""
-    return await crud_user.get_multi(skip, limit)
-
+# Admin endpoints moved to /api/v1/admin/users in app/routes/admin.py
 
 @router.get("/{user_id}", response_model=AdminUserResponse)
 async def get_user(
@@ -171,31 +162,7 @@ async def get_user(
         raise NotFoundException("User", user_id)
     return user
 
-
-@router.patch("/{user_id}", response_model=AdminUserResponse)
-async def update_user(
-    user_id: str,
-    body: AdminUserUpdate,
-    _: CurrentUser = Depends(get_admin_user),
-):
-    """
-    Update any user's fields — admin only.
-    Allows changing is_admin, loyalty_points, and membership_tier.
-    """
-    # model_dump(exclude_none=True) allows partial updates
-    data = body.model_dump(exclude_none=True)
-
-    # If admin provides full_name directly, use it, otherwise don't overwrite
-    if not data:
-        user = await crud_user.get_by_id(user_id)
-        if not user:
-            raise NotFoundException("User", user_id)
-        return user
-
-    updated = await crud_user.update(user_id, data)
-    if not updated:
-        raise NotFoundException("User", user_id)
-    return updated
+# Admin PATCH moved to /api/v1/admin/users/{user_id} in app/routes/admin.py
 
 @router.delete("/{user_id}")
 async def deactivate_user(

@@ -472,49 +472,5 @@ async def change_seat(
             detail=f"Failed to change seat: {str(e)}"
         )
 
-
-# ========== Admin Endpoints (Optional) ==========
-
-@router.get("/admin/all")
-async def get_all_bookings(
-    current_user: CurrentUser = Depends(get_current_user),
-    booking_status: Optional[str] = Query(None, alias="status", description="Filter by status"),
-    limit: int = Query(100, ge=1, le=1000),
-    offset: int = Query(0, ge=0)
-):
-    """Admin endpoint: Get all bookings with pagination"""
-    if not current_user.is_admin:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin privileges required"
-        )
-
-    try:
-        bookings = await crud_booking.get_all_bookings(booking_status, limit, offset)
-        return {"bookings": bookings, "count": len(bookings)}
-    except Exception as e:
-        logger.error(f"Error getting all bookings: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to fetch bookings: {str(e)}"
-        )
-
-
-@router.get("/admin/stats/pending")
-async def get_pending_count(current_user: CurrentUser = Depends(get_current_user)):
-    """Admin endpoint: Get count of pending bookings"""
-    if not current_user.is_admin:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin privileges required"
-        )
-
-    try:
-        count = await crud_booking.get_pending_bookings_count()
-        return {"pending_count": count}
-    except Exception as e:
-        logger.error(f"Error getting pending count: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to fetch pending count: {str(e)}"
-        )
+# ========== Admin Endpoints ==========
+# Moved to /api/v1/admin/ in app/routes/admin.py

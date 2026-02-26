@@ -1,15 +1,13 @@
-from fastapi import APIRouter, Query, Depends
+from fastapi import APIRouter, Query
 from typing import Optional
 from datetime import date, timedelta, datetime
 
 from app.crud.movie import CRUDMovie
 from app.schemas.movie import (
-    Movie, MovieCreate, MovieUpdate,
     MovieListResponse, MovieSummary, MovieDetail,
     MovieShowtimesResponse, ShowtimeCard,
 )
 from app.core.supabase import supabase_admin
-from app.core.security import get_admin_user
 from app.core.exceptions import NotFoundException
 from app.core.calculations import calc_raqs, calc_ttc
 
@@ -134,28 +132,5 @@ async def get_movie_showtimes(
         furthest_available_date=furthest,
     )
 
-
 # ── Admin endpoints ───────────────────────────────────────────────────────────
-
-@router.post("", response_model=Movie, status_code=201)
-async def create_movie(movie: MovieCreate, _: object = Depends(get_admin_user)):
-    """Create a new movie — admin only."""
-    return await crud_movie.create(movie)
-
-
-@router.patch("/{movie_id}", response_model=Movie)
-async def update_movie(movie_id: int, movie: MovieUpdate, _: object = Depends(get_admin_user)):
-    """Update movie fields — admin only."""
-    updated = await crud_movie.update(movie_id, movie)
-    if not updated:
-        raise NotFoundException("Movie", str(movie_id))
-    return updated
-
-
-@router.delete("/{movie_id}")
-async def delete_movie(movie_id: int, _: object = Depends(get_admin_user)):
-    """Remove movie listing — admin only."""
-    success = await crud_movie.delete(movie_id)
-    if not success:
-        raise NotFoundException("Movie", str(movie_id))
-    return {"message": "Movie removed"}
+# Moved to /api/v1/admin/movies in app/routes/admin.py

@@ -271,34 +271,7 @@ async def get_hold_status(
 
 
 # ── Admin endpoints ───────────────────────────────────────────────────────────
-
-@router.post("", response_model=Showtime, status_code=201)
-async def create_showtime(showtime: ShowtimeCreate, _: object = Depends(get_admin_user)):
-    """Create a new showtime — admin only."""
-    return await crud_showtime.create(showtime)
-
-
-@router.patch("/{showtime_id}", response_model=Showtime)
-async def update_showtime(
-    showtime_id: int,
-    showtime: ShowtimeUpdate,
-    _: object = Depends(get_admin_user),
-):
-    """Update showtime fields — admin only."""
-    updated = await crud_showtime.update(showtime_id, showtime)
-    if not updated:
-        raise NotFoundException("Showtime", str(showtime_id))
-    return updated
-
-
-@router.delete("/{showtime_id}")
-async def delete_showtime(showtime_id: int, _: object = Depends(get_admin_user)):
-    """Cancel/remove a showtime — admin only."""
-    success = await crud_showtime.delete(showtime_id)
-    if not success:
-        raise NotFoundException("Showtime", str(showtime_id))
-    return {"message": "Showtime cancelled"}
-
+# Moved to /api/v1/admin/showtimes in app/routes/admin.py
 
 @router.get("/movie/{movie_id}", response_model=List[Showtime])
 async def get_showtimes_by_movie(movie_id: int):

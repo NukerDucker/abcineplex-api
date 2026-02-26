@@ -416,8 +416,6 @@ class CRUDBooking:
         """
         try:
             error_str = str(error)
-            # PostgREST wraps the RAISE message in 'message' field
-            # Try finding JSON block inside the error string
             start = error_str.find('{')
             end = error_str.rfind('}')
             if start != -1 and end != -1 and end > start:
