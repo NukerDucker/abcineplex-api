@@ -24,7 +24,7 @@ crud_user = CRUDUser(supabase_admin)
 
 @router.get("/me", response_model=UserProfile)
 async def get_me(current_user: CurrentUser = Depends(get_current_user)):
-    """Get current user's profile."""
+    """Get current user's profile with theatre rewards and admin status."""
     user = await crud_user.get_by_id(current_user.user_id)
     if not user:
         raise NotFoundException("User", current_user.user_id)
@@ -36,21 +36,33 @@ async def update_me(
     body: UserUpdate,
     current_user: CurrentUser = Depends(get_current_user),
 ):
-    """Update current user's profile (first_name, last_name, phone)."""
+    """
+    Update current user's profile.
+    Maps first_name/last_name to the DB 'full_name' column.
+    """
     data: dict = {}
 
-    # first_name / last_name → stored as full_name in DB
+    # Handle Name Mapping
     if body.first_name is not None or body.last_name is not None:
         current = await crud_user.get_by_id(current_user.user_id)
         existing = (current.get("full_name") or "") if current else ""
         parts = existing.split(" ", 1)
+
+        # Determine values, falling back to existing DB state if one side is missing in request
+        existing_first = parts[0] if len(parts) > 0 else ""
         existing_last = parts[1] if len(parts) > 1 else ""
-        first = body.first_name if body.first_name is not None else parts[0]
+
+        first = body.first_name if body.first_name is not None else existing_first
         last = body.last_name if body.last_name is not None else existing_last
         data["full_name"] = f"{first} {last}".strip()
 
+    # Direct field updates
     if body.phone is not None:
         data["phone"] = body.phone
+
+    if body.date_of_birth is not None:
+        # Pydantic date serializes to ISO string for Supabase automatically
+        data["date_of_birth"] = body.date_of_birth.isoformat()
 
     if not data:
         return await get_me(current_user)
@@ -59,7 +71,6 @@ async def update_me(
     if not updated:
         raise NotFoundException("User", current_user.user_id)
     return updated
-
 
 @router.post("/me/student-verification")
 async def submit_student_verification(
@@ -116,6 +127,7 @@ async def get_my_bookings(
 async def get_my_points(current_user: CurrentUser = Depends(get_current_user)):
     """Get points balance and transaction history."""
     user = await crud_user.get_by_id(current_user.user_id)
+    # Note: DB column is loyalty_points, mapped to reward_points in UserProfile
     current_points = int((user or {}).get("loyalty_points", 0))
 
     try:
@@ -128,11 +140,11 @@ async def get_my_points(current_user: CurrentUser = Depends(get_current_user)):
                 .execute()
         )
         txns = [PointTransaction(**t) for t in (res.data or [])]
-    except Exception:
+    except Exception as e:
+        logger.error(f"Points fetch error: {e}")
         txns = []
 
     return UserPointsResponse(current_points=current_points, transactions=txns)
-
 
 # ── Admin: manage all users ───────────────────────────────────────────────────
 
@@ -166,18 +178,24 @@ async def update_user(
     body: AdminUserUpdate,
     _: CurrentUser = Depends(get_admin_user),
 ):
-    """Update any user's fields — admin only."""
+    """
+    Update any user's fields — admin only.
+    Allows changing is_admin, loyalty_points, and membership_tier.
+    """
+    # model_dump(exclude_none=True) allows partial updates
     data = body.model_dump(exclude_none=True)
+
+    # If admin provides full_name directly, use it, otherwise don't overwrite
     if not data:
         user = await crud_user.get_by_id(user_id)
         if not user:
             raise NotFoundException("User", user_id)
         return user
+
     updated = await crud_user.update(user_id, data)
     if not updated:
         raise NotFoundException("User", user_id)
     return updated
-
 
 @router.delete("/{user_id}")
 async def deactivate_user(
