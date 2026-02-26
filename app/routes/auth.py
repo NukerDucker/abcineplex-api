@@ -90,8 +90,9 @@ async def login(body: LoginRequest):
             id=str(auth_res.user.id),
             email=auth_res.user.email or body.email,
             first_name=first_name,
-            membership_tier="free",
+            membership_tier=profile.get("membership_tier", "free"),
             reward_points=profile.get("loyalty_points", 0),
+            is_admin=profile.get("is_admin", False),
         ),
     )
 
