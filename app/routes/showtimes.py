@@ -11,6 +11,7 @@ from app.schemas.showtime import (
     Showtime, ShowtimeCreate, ShowtimeUpdate,
     ShowtimeDetail, MovieRef, TheatreRef, TicketPrices,
     SeatMapResponse, SeatLayout, SeatInMap, _STATUS_MAP,
+    TimeCommitmentResponse, TTCComponents,
 )
 from app.schemas.seat import (
     HoldRequest, HoldResponse, ReleaseHoldRequest, HoldStatusResponse,
@@ -267,6 +268,70 @@ async def get_hold_status(
         hold_id=hold_id,
         is_active=is_active,
         expires_in_seconds=max(0, remaining),
+    )
+
+
+@router.get("/{showtime_id}/time-commitment", response_model=TimeCommitmentResponse)
+async def get_showtime_time_commitment(
+    showtime_id: int,
+    travel_minutes: int = Query(30, ge=0, le=120, description="One-way travel time in minutes (default: 30)"),
+):
+    """Get Total Time Commitment calculation for a showtime with detailed breakdown."""
+    showtime = await crud_showtime.get_by_id(showtime_id)
+    if not showtime:
+        raise NotFoundException("Showtime", str(showtime_id))
+
+    # Get movie details for runtime and credits
+    movie_id = showtime.get("movie_id")
+    if not movie_id:
+        raise NotFoundException("Movie for showtime", str(showtime_id))
+
+    # Import here to avoid circular imports
+    from app.crud.movie import CRUDMovie
+    crud_movie = CRUDMovie(supabase_admin)
+    movie = await crud_movie.get_by_id(movie_id)
+    if not movie:
+        raise NotFoundException("Movie", str(movie_id))
+
+    # Extract movie details
+    runtime = int(movie.get("duration_minutes") or 0)
+    credits_min = int(movie.get("credits_duration_minutes") or 5)
+    movie_title = movie.get("title", "")
+
+    # Calculate TTC
+    ttc = calc_ttc(runtime, credits_min, travel_minutes)
+    pre_show_ads = 15  # Fixed constant
+
+    # Parse showtime start
+    start_raw = showtime.get("start_time", "")
+    if isinstance(start_raw, str):
+        try:
+            show_start = datetime.fromisoformat(start_raw.replace("Z", "+00:00"))
+        except (ValueError, AttributeError):
+            show_start = datetime.now(timezone.utc)
+    else:
+        show_start = start_raw if isinstance(start_raw, datetime) else datetime.now(timezone.utc)
+
+    # Calculate end times
+    movie_end_time = show_start + timedelta(minutes=runtime)
+    credits_end_time = show_start + timedelta(minutes=runtime + credits_min)
+    home_arrival = show_start + timedelta(minutes=ttc)
+
+    return TimeCommitmentResponse(
+        showtime_id=showtime_id,
+        movie_title=movie_title,
+        components=TTCComponents(
+            travel_to_theatre_minutes=travel_minutes,
+            pre_show_ads_minutes=pre_show_ads,
+            runtime_minutes=runtime,
+            credits_minutes=credits_min,
+            travel_from_theatre_minutes=travel_minutes,
+        ),
+        total_time_commitment_minutes=ttc,
+        show_start=show_start,
+        movie_end_time=movie_end_time,
+        credits_end_time=credits_end_time,
+        estimated_home_arrival=home_arrival,
     )
 
 

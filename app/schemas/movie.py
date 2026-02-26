@@ -157,3 +157,23 @@ class MovieShowtimesResponse(BaseModel):
 # Kept for backward compat with admin movie routes
 class Movie(MovieDetail):
     pass
+
+
+# ── Unique Feature Schemas ───────────────────────────────────────────────────────
+
+class RAQSBreakdown(BaseModel):
+    """Risk-Adjusted Quality Score calculation breakdown."""
+    base_rating: float
+    confidence_weight: float
+    recency_factor: float
+    formula: str = "base_rating * confidence_weight * recency_factor"
+
+
+class QualityScoreResponse(BaseModel):
+    """Movie quality score response with RAQS breakdown."""
+    movie_id: int
+    title: str
+    rating_tmdb: float
+    rating_count: int
+    risk_adjusted_quality_score: float
+    score_breakdown: RAQSBreakdown

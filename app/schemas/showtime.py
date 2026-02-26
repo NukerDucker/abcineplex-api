@@ -111,3 +111,26 @@ class SeatMapResponse(BaseModel):
     theatre_id: Optional[int] = None
     layout: SeatLayout
     seats: List[SeatInMap]
+
+
+# ── Unique Feature Schemas ───────────────────────────────────────────────────────
+
+class TTCComponents(BaseModel):
+    """Total Time Commitment component breakdown."""
+    travel_to_theatre_minutes: int
+    pre_show_ads_minutes: int
+    runtime_minutes: int
+    credits_minutes: int
+    travel_from_theatre_minutes: int
+
+
+class TimeCommitmentResponse(BaseModel):
+    """Time commitment response with TTC breakdown per spec § 5.12."""
+    showtime_id: int
+    movie_title: str
+    components: TTCComponents
+    total_time_commitment_minutes: int
+    show_start: datetime
+    movie_end_time: datetime
+    credits_end_time: datetime
+    estimated_home_arrival: datetime

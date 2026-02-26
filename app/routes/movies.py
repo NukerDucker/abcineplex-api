@@ -6,6 +6,7 @@ from app.crud.movie import CRUDMovie
 from app.schemas.movie import (
     MovieListResponse, MovieSummary, MovieDetail,
     MovieShowtimesResponse, ShowtimeCard,
+    QualityScoreResponse, RAQSBreakdown,
 )
 from app.core.supabase import supabase_admin
 from app.core.exceptions import NotFoundException
@@ -131,6 +132,48 @@ async def get_movie_showtimes(
         showtimes_by_date=by_date,
         furthest_available_date=furthest,
     )
+
+
+@router.get("/{movie_id}/quality-score", response_model=QualityScoreResponse)
+async def get_movie_quality_score(movie_id: int):
+    """Get the Risk-Adjusted Quality Score for a movie with breakdown."""
+    movie = await crud_movie.get_by_id(movie_id)
+    if not movie:
+        raise NotFoundException("Movie", str(movie_id))
+
+    # Extract RAQS components
+    rating = float(movie.get("imdb_score") or 0)
+    votes = int(movie.get("rating_count") or 0)
+    rel_raw = movie.get("release_date")
+    rel_date = date.fromisoformat(rel_raw) if isinstance(rel_raw, str) else rel_raw
+
+    # Calculate RAQS
+    raqs = calc_raqs(rating, votes, rel_date)
+
+    # Build confidence and recency factors for breakdown
+    confidence = votes / (votes + 1500) if votes > 0 else 0.0
+    recency = 1.0
+    if rel_date:
+        today = date.today()
+        months_old = (today.year - rel_date.year) * 12 + (today.month - rel_date.month)
+        if months_old > 18:
+            recency = 0.90
+        elif months_old > 6:
+            recency = 0.95
+
+    return QualityScoreResponse(
+        movie_id=movie_id,
+        title=movie.get("title", ""),
+        rating_tmdb=rating,
+        rating_count=votes,
+        risk_adjusted_quality_score=raqs,
+        score_breakdown=RAQSBreakdown(
+            base_rating=rating,
+            confidence_weight=round(confidence, 4),
+            recency_factor=recency,
+        ),
+    )
+
 
 # ── Admin endpoints ───────────────────────────────────────────────────────────
 # Moved to /api/v1/admin/movies in app/routes/admin.py
