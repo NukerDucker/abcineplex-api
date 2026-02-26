@@ -134,8 +134,15 @@ async def google_signin():
     """Initiate Google OAuth signin flow - returns URL for frontend redirect."""
     try:
         redirect_url = os.getenv("SUPABASE_REDIRECT_URL", "http://localhost:3000/auth/callback")
-        # Construct the Google OAuth URL
-        google_url = f"{os.getenv('SUPABASE_URL', '')}/auth/v1/oauth2/authorize?provider=google&redirect_to={redirect_url}"
+        supabase_url = os.getenv('SUPABASE_URL', '')
+        # Construct the Google OAuth URL with all required parameters
+        google_url = (
+            f"{supabase_url}/auth/v1/authorize?"
+            f"provider=google&"
+            f"redirect_to={redirect_url}&"
+            f"response_type=code&"
+            f"scope=openid%20profile%20email"
+        )
         return {"url": google_url}
     except Exception as e:
         logger.error(f"Google OAuth URL generation failed: {e}")
@@ -150,7 +157,6 @@ async def google_callback(code: str = Query(...)):
         session_result = await asyncio.to_thread(
             lambda: supabase.auth.exchange_code_for_session({"code": code})
         )
-
         if not session_result.session or not session_result.user:
             raise AuthenticationException("Failed to exchange code for session")
 
