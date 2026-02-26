@@ -4,14 +4,19 @@ Simulates a payment gateway without real financial integration.
 State is stored in-memory (intentional — this is a mock system).
 """
 from fastapi import APIRouter, HTTPException, status, Depends
-from pydantic import BaseModel, Field
-from typing import Optional
 from uuid import uuid4
 from datetime import datetime
 
 from app.crud.booking import CRUDBooking
 from app.core.supabase import supabase_admin
 from app.core.security import get_current_user, CurrentUser
+from app.schemas.payment import (
+    PaymentInitiateRequest,
+    PaymentInitiateResponse,
+    PaymentConfirmRequest,
+    PaymentConfirmResponse,
+    PaymentStatusResponse,
+)
 import logging
 
 logger = logging.getLogger(__name__)
@@ -22,53 +27,6 @@ crud_booking = CRUDBooking(supabase_admin)
 # ── In-memory mock payment store ──────────────────────────────────────────────
 # Dict[payment_id -> payment record]
 _payments: dict[str, dict] = {}
-
-
-# ── Schemas ───────────────────────────────────────────────────────────────────
-
-class PaymentInitiateRequest(BaseModel):
-    booking_id: int
-    payment_method: str = Field(
-        default="mock_card",
-        pattern="^(mock_card|mock_qr|mock_cash)$",
-        description="mock_card | mock_qr | mock_cash",
-    )
-    mock_should_succeed: bool = Field(
-        default=True,
-        description="Set false to simulate a payment failure",
-    )
-
-
-class PaymentInitiateResponse(BaseModel):
-    payment_id: str
-    status: str
-    amount: float
-    payment_method: str
-
-
-class PaymentConfirmRequest(BaseModel):
-    mock_result: bool = Field(
-        default=True,
-        description="True = payment success, False = payment declined",
-    )
-
-
-class PaymentConfirmResponse(BaseModel):
-    payment_id: str
-    status: str
-    booking_id: int
-    booking_status: Optional[str] = None
-    points_earned: Optional[int] = None
-    message: Optional[str] = None
-
-
-class PaymentStatusResponse(BaseModel):
-    payment_id: str
-    booking_id: int
-    status: str
-    amount: float
-    payment_method: str
-    paid_at: Optional[datetime] = None
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
