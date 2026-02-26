@@ -13,7 +13,6 @@ from app.schemas.booking import (
     CancelBookingRequest,
     CancelBookingResponse,
     BookingDetail,
-    UserBookingsResponse,
     AvailableSeat,
     ScreenInfo,
     ScreenStatistics,

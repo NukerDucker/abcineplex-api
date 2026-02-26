@@ -145,8 +145,8 @@ class TicketInfo(BaseModel):
     row_label: str
     seat_number: int
 
-class UserBookingsResponse(BaseModel):
-    """List of user's bookings"""
+class BookingListResponse(BaseModel):
+    """List of bookings"""
     bookings: List[BookingDetail]
     total_count: int
 
