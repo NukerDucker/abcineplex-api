@@ -106,8 +106,8 @@ async def get_all_seats(screen_id: int):
 
 # ========== Booking Flow Endpoints ==========
 
-@router.post("/reserve", response_model=ReserveSeatResponse)
-async def reserve_seats(
+@router.post("", response_model=ReserveSeatResponse)
+async def create_booking(
     request: ReserveSeatRequest,
     current_user: CurrentUser = Depends(get_current_user),
 ):
@@ -286,27 +286,7 @@ async def cancel_booking_delete(
 
 
 # ========== Booking Information Endpoints ==========
-
-@router.get("/me", response_model=UserBookingsResponse)
-async def get_my_bookings(
-    current_user: CurrentUser = Depends(get_current_user),
-    booking_status: Optional[str] = Query(None, alias="status", description="Filter by status (pending, confirmed, cancelled, expired)")
-):
-    """Get all bookings for the currently authenticated user"""
-    try:
-        user_id = UUID(current_user.user_id)
-        bookings = await crud_booking.get_user_bookings(user_id, booking_status)
-        return UserBookingsResponse(
-            bookings=bookings,
-            total_count=len(bookings)
-        )
-    except Exception as e:
-        logger.error(f"Error getting user bookings: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to fetch user bookings: {str(e)}"
-        )
-
+# Note: GET /me is handled by GET /api/v1/users/me/bookings — removed duplicate
 
 @router.get("/{booking_id}", response_model=BookingDetail)
 async def get_booking(
@@ -378,35 +358,7 @@ async def get_booking_tickets(
             detail=f"Failed to fetch tickets: {str(e)}"
         )
 
-
-@router.get("/user/{user_id}/bookings", response_model=UserBookingsResponse)
-async def get_user_bookings(
-    user_id: UUID,
-    current_user: CurrentUser = Depends(get_current_user),
-    booking_status: Optional[str] = Query(None, alias="status", description="Filter by status (pending, confirmed, cancelled, expired)")
-):
-    """Get all bookings for a specific user"""
-    try:
-        # Authorization: Self or Admin
-        if not current_user.is_admin and str(user_id) != current_user.user_id:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="You do not have permission to view this user's bookings"
-            )
-
-        bookings = await crud_booking.get_user_bookings(user_id, booking_status)
-        return UserBookingsResponse(
-            bookings=bookings,
-            total_count=len(bookings)
-        )
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error getting user bookings: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to fetch user bookings: {str(e)}"
-        )
+# Note: User bookings are handled by GET /api/v1/users/me/bookings and GET /api/v1/users/{user_id}/bookings — removed duplicate
 
 
 # ========== Statistics Endpoints ==========
