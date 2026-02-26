@@ -63,6 +63,7 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
 
 async def get_admin_user(current_user: CurrentUser = Depends(get_current_user)) -> CurrentUser:
     """Dependency to ensure user is authenticated and has admin privileges"""
+    from app.core.exceptions import UnauthorizedException
     if not current_user.is_admin:
-        raise AuthenticationException("Admin privileges required")
+        raise UnauthorizedException("Admin privileges required")
     return current_user
