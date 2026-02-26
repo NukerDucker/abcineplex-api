@@ -1,6 +1,8 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
+from fastapi.responses import RedirectResponse
 import asyncio
 import logging
+import os
 
 from app.schemas.auth import (
     RegisterRequest, RegisterResponse,
@@ -125,3 +127,105 @@ async def refresh_token(body: RefreshRequest):
         token=result.session.access_token,
         refresh_token=result.session.refresh_token,
     )
+
+
+@router.get("/google")
+async def google_signin():
+    """Initiate Google OAuth signin flow - returns URL for frontend redirect."""
+    try:
+        redirect_url = os.getenv("SUPABASE_REDIRECT_URL", "http://localhost:3000/auth/callback")
+        # Construct the Google OAuth URL
+        google_url = f"{os.getenv('SUPABASE_URL', '')}/auth/v1/oauth2/authorize?provider=google&redirect_to={redirect_url}"
+        return {"url": google_url}
+    except Exception as e:
+        logger.error(f"Google OAuth URL generation failed: {e}")
+        raise AppException("Failed to initiate Google signin", 500)
+
+
+@router.post("/google/callback", response_model=LoginResponse)
+async def google_callback(code: str = Query(...)):
+    """Handle Google OAuth callback with authorization code."""
+    try:
+        # Exchange code for session
+        session_result = await asyncio.to_thread(
+            lambda: supabase.auth.exchange_code_for_session({"code": code})
+        )
+
+        if not session_result.session or not session_result.user:
+            raise AuthenticationException("Failed to exchange code for session")
+
+        user_id = str(session_result.user.id)
+        email = session_result.user.email or ""
+
+        # Check if profile exists
+        profile_res = await asyncio.to_thread(
+            lambda: supabase_admin.table("users")
+                .select("id, full_name, loyalty_points, is_admin, membership_tier")
+                .eq("id", user_id)
+                .maybe_single()
+                .execute()
+        )
+
+        profile = profile_res.data
+
+        # Create profile if it doesn't exist
+        if not profile:
+            try:
+                # Extract name from user metadata
+                user_name_val = ""
+                full_name_val = ""
+                if session_result.user.user_metadata:
+                    full_name_val = session_result.user.user_metadata.get("name", "") or ""
+                    user_name_val = full_name_val.replace(" ", "").lower() or email.split("@")[0]
+                else:
+                    user_name_val = email.split("@")[0]
+
+                await asyncio.to_thread(
+                    lambda: supabase_admin.table("users").insert({
+                        "id": user_id,
+                        "email": email,
+                        "full_name": full_name_val,
+                        "user_name": user_name_val,
+                        "loyalty_points": 0,
+                        "is_admin": False,
+                        "membership_tier": "free",
+                    }).execute()
+                )
+
+                profile = {
+                    "id": user_id,
+                    "full_name": full_name_val,
+                    "loyalty_points": 0,
+                    "is_admin": False,
+                    "membership_tier": "free",
+                }
+            except Exception as e:
+                logger.error(f"Failed to create user profile for Google auth: {e}")
+                # Continue with minimal profile info
+                profile = {
+                    "id": user_id,
+                    "full_name": "",
+                    "loyalty_points": 0,
+                    "is_admin": False,
+                    "membership_tier": "free",
+                }
+
+        full_name = profile.get("full_name", "")
+        first_name = full_name.split(" ")[0] if full_name else ""
+
+        return LoginResponse(
+            token=session_result.session.access_token,
+            refresh_token=session_result.session.refresh_token,
+            user=TokenUser(
+                id=user_id,
+                email=email,
+                first_name=first_name,
+                membership_tier=profile.get("membership_tier", "free"),
+                reward_points=profile.get("loyalty_points", 0),
+            ),
+        )
+    except AuthenticationException:
+        raise
+    except Exception as e:
+        logger.error(f"Google OAuth callback failed: {e}")
+        raise AppException("Failed to complete Google signin", 500)
