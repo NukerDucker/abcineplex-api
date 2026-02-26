@@ -57,7 +57,7 @@ class CRUDPublic:
         """Create promotional event"""
         data = promo.model_dump(mode='json')
         response = await asyncio.to_thread(
-            lambda: self.client.table("promo_events").insert(data).execute()
+            lambda: self.client.table("promotions").insert(data).execute()
         )
         return response.data[0]
 
@@ -68,7 +68,7 @@ class CRUDPublic:
             return None
 
         response = await asyncio.to_thread(
-            lambda: self.client.table("promo_events")
+            lambda: self.client.table("promotions")
                 .update(data)
                 .eq("id", promo_id)
                 .select()
@@ -80,17 +80,21 @@ class CRUDPublic:
     async def delete_promotion(self, promo_id: str) -> bool:
         """Delete promotion"""
         response = await asyncio.to_thread(
-            lambda: self.client.table("promo_events").delete().eq("id", promo_id).execute()
+            lambda: self.client.table("promotions").delete().eq("id", promo_id).execute()
         )
         return bool(response.data)
 
     async def get_promo_events(self) -> List[dict]:
         """Get active promotional events"""
         response = await asyncio.to_thread(
-            lambda: self.client.table("promo_events")
+            lambda: self.client.table("promotions")
                 .select("*")
                 .eq("is_active", True)
                 .order("created_at")
                 .execute()
         )
         return response.data or []
+
+    async def get_promotions(self) -> List[dict]:
+        """Alias for get_promo_events for backward compatibility"""
+        return await self.get_promo_events()

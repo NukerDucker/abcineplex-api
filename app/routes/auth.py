@@ -39,7 +39,7 @@ async def register(body: RegisterRequest):
     try:
         await asyncio.to_thread(
             lambda: supabase_admin.table("users").insert({
-                "user_id": user_id,
+                "id": user_id,
                 "email": body.email,
                 "full_name": full_name,
                 "user_name": body.email.split("@")[0],
@@ -74,8 +74,8 @@ async def login(body: LoginRequest):
     # Fetch profile
     profile_res = await asyncio.to_thread(
         lambda: supabase_admin.table("users")
-            .select("user_id, full_name, loyalty_points")
-            .eq("user_id", str(auth_res.user.id))
+            .select("id, full_name, loyalty_points, is_admin, membership_tier")
+            .eq("id", str(auth_res.user.id))
             .maybe_single()
             .execute()
     )
