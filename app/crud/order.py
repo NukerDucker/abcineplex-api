@@ -1,5 +1,5 @@
 """
-CRUD operations for orders
+CRUD operations for snack orders
 Handles snack order management and order items
 """
 from supabase import Client
