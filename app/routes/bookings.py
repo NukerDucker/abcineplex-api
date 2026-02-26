@@ -21,7 +21,7 @@ from app.schemas.booking import (
 )
 from app.crud.booking import CRUDBooking
 from app.core.supabase import supabase_admin
-from app.core.security import get_current_user, CurrentUser
+from app.core.security import get_current_user, get_admin_user, CurrentUser
 import logging
 
 logger = logging.getLogger(__name__)
@@ -142,7 +142,10 @@ async def reserve_seats(
 
 
 @router.post("/confirm-payment", response_model=ConfirmPaymentResponse)
-async def confirm_payment(request: ConfirmPaymentRequest):
+async def confirm_payment(
+    request: ConfirmPaymentRequest,
+    current_user: CurrentUser = Depends(get_current_user),
+):
     """
     Step 2: Confirm payment and finalize booking.
     Called after payment gateway confirms successful payment.
@@ -428,7 +431,7 @@ async def get_screen_statistics():
 # ========== Worker Endpoint (Internal Use) ==========
 
 @router.post("/internal/release-expired", response_model=ExpiryWorkerResponse)
-async def release_expired_reservations():
+async def release_expired_reservations(_: CurrentUser = Depends(get_admin_user)):
     """
     Internal endpoint to release expired reservations.
     Should be called by a cron job or worker every minute.
