@@ -11,7 +11,6 @@ from app.schemas.booking import (
 import logging
 import asyncio
 import json
-import ast
 
 logger = logging.getLogger(__name__)
 
@@ -20,61 +19,6 @@ class CRUDBooking:
 
     def __init__(self, supabase_client: Client):
         self.client = supabase_client
-
-    def _extract_json_from_error(self, e: Exception) -> Optional[Dict[str, Any]]:
-        """
-        Extract JSON data from Supabase error when response is bytes.
-        Handles the case where Supabase returns bytes that it can't parse.
-        """
-        # Try to get error_dict from args or attributes
-        error_dict = None
-        if hasattr(e, 'args') and len(e.args) > 0 and isinstance(e.args[0], dict):
-            error_dict = e.args[0]
-        elif hasattr(e, 'details'):
-            # Some exceptions (like APIError) have attributes directly
-            error_dict = {
-                'message': getattr(e, 'message', str(e)),
-                'details': getattr(e, 'details', None),
-                'code': getattr(e, 'code', None)
-            }
-
-        if error_dict and 'details' in error_dict:
-            details = error_dict['details']
-            if not details:
-                return None
-
-            if isinstance(details, dict):
-                return details
-
-            if isinstance(details, bytes):
-                try:
-                    return json.loads(details.decode('utf-8'))
-                except Exception:
-                    pass
-
-            # Extract JSON from bytes string representation (e.g. "b'{\"success\": true}'")
-            if isinstance(details, str):
-                if details.startswith("b'") or details.startswith('b"'):
-                    try:
-                        # Use ast.literal_eval to safely convert string representation of bytes
-                        bytes_obj = ast.literal_eval(details)
-                        if isinstance(bytes_obj, bytes):
-                            return json.loads(bytes_obj.decode('utf-8'))
-                    except Exception as eval_err:
-                        logger.debug(f"ast.literal_eval failed: {eval_err}")
-                        # Fallback to manual replacement
-                        try:
-                            json_str = details[2:-1].replace("\\'", "'").replace('\\"', '"')
-                            return json.loads(json_str)
-                        except Exception:
-                            pass
-                else:
-                    # Maybe it's just a JSON string
-                    try:
-                        return json.loads(details)
-                    except Exception:
-                        pass
-        return None
 
     # ========== Seat Operations ==========
 
@@ -255,7 +199,7 @@ class CRUDBooking:
             return None
 
     async def get_booking_details(self, booking_id: int) -> Optional[BookingDetail]:
-        """Get detailed booking information with seats"""
+        """Get detailed booking information with seats and QR codes"""
         try:
             response = await asyncio.to_thread(
                 lambda: self.client.from_('booking_details')
@@ -265,9 +209,24 @@ class CRUDBooking:
                     .execute()
             )
 
-            if response.data:
-                return BookingDetail(**response.data)
-            return None
+            if not response.data:
+                return None
+
+            data: Dict[str, Any] = dict(response.data)  # type: ignore[arg-type]
+
+            # Enrich with ticket/QR data if booking is confirmed
+            tickets: List[Dict[str, Any]] = []
+            qr_code_data: Optional[str] = None
+            if data.get('booking_status') == 'confirmed':
+                tickets = await self.get_tickets_for_booking(booking_id)
+                if tickets:
+                    qr_code_data = ','.join(
+                        t['qr_code_slug'] for t in tickets if t.get('qr_code_slug')
+                    ) or None
+
+            data['qr_code_data'] = qr_code_data
+            data['tickets'] = tickets if tickets else None
+            return BookingDetail(**data)
         except Exception as e:
             logger.error(f"Error getting booking details: {e}")
             return None
@@ -447,3 +406,22 @@ class CRUDBooking:
         except Exception as e:
             logger.error(f"Error getting pending bookings count: {e}")
             return 0
+
+    # ========== Helpers ==========
+
+    def _extract_json_from_error(self, error: Exception) -> Optional[Dict[str, Any]]:
+        """
+        Try to extract JSON payload from a Supabase/PostgREST error detail.
+        Supabase RPC functions that RAISE exceptions embed JSON in the error message.
+        """
+        try:
+            error_str = str(error)
+            # PostgREST wraps the RAISE message in 'message' field
+            # Try finding JSON block inside the error string
+            start = error_str.find('{')
+            end = error_str.rfind('}')
+            if start != -1 and end != -1 and end > start:
+                return json.loads(error_str[start:end + 1])
+        except Exception:
+            pass
+        return None

@@ -134,6 +134,8 @@ class BookingDetail(BaseModel):
     movie_title: Optional[str] = None
     poster_url: Optional[str] = None
     showtime_start: Optional[str] = None
+    qr_code_data: Optional[str] = None  # Comma-joined QR slugs from tickets
+    tickets: Optional[List[dict]] = None  # Full ticket objects with QR codes
 
 
 class TicketInfo(BaseModel):

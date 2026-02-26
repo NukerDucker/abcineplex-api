@@ -26,6 +26,8 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+_BOOKING_NOT_FOUND = "Booking not found"
+
 router = APIRouter(prefix="/api/bookings", tags=["bookings"])
 crud_booking = CRUDBooking(supabase_admin)
 
@@ -105,7 +107,10 @@ async def get_all_seats(screen_id: int):
 # ========== Booking Flow Endpoints ==========
 
 @router.post("/reserve", response_model=ReserveSeatResponse)
-async def reserve_seats(request: ReserveSeatRequest):
+async def reserve_seats(
+    request: ReserveSeatRequest,
+    current_user: CurrentUser = Depends(get_current_user),
+):
     """
     Step 1: Reserve seats and create pending booking.
     Called when user proceeds to payment.
@@ -149,7 +154,7 @@ async def confirm_payment(request: ConfirmPaymentRequest):
         if not booking:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="Booking not found"
+                detail=_BOOKING_NOT_FOUND
             )
 
         logger.info(f"Confirming payment for booking {request.booking_id}, current status: {booking.get('status')}")
@@ -205,12 +210,21 @@ async def confirm_payment(request: ConfirmPaymentRequest):
 
 
 @router.post("/cancel", response_model=CancelBookingResponse)
-async def cancel_booking(request: CancelBookingRequest):
+async def cancel_booking_post(
+    request: CancelBookingRequest,
+    current_user: CurrentUser = Depends(get_current_user),
+):
     """
-    Cancel a pending booking.
-    Called when user explicitly cancels or closes the payment page.
+    Cancel a pending booking (POST variant — kept for backward compatibility).
     Releases seats back to available status.
     """
+    booking = await crud_booking.get_booking_by_id(request.booking_id)
+    if not booking:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=_BOOKING_NOT_FOUND)
+
+    if not current_user.is_admin and str(booking.get('user_id')) != current_user.user_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not your booking")
+
     try:
         result = await crud_booking.cancel_booking(request.booking_id)
 
@@ -220,13 +234,48 @@ async def cancel_booking(request: CancelBookingRequest):
                 message=result.get('error', 'Failed to cancel booking')
             )
 
-        return CancelBookingResponse(
-            success=True,
-            message="Booking cancelled successfully"
-        )
+        return CancelBookingResponse(success=True, message="Booking cancelled successfully")
 
     except Exception as e:
         logger.error(f"Error cancelling booking: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to cancel booking: {str(e)}"
+        )
+
+
+@router.delete("/{booking_id}", response_model=CancelBookingResponse)
+async def cancel_booking_delete(
+    booking_id: int,
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """
+    Cancel / delete a booking (DELETE variant per spec §5.6).
+    Owner or admin only. No refund per theatre policy.
+    """
+    booking = await crud_booking.get_booking_by_id(booking_id)
+    if not booking:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=_BOOKING_NOT_FOUND)
+
+    if not current_user.is_admin and str(booking.get('user_id')) != current_user.user_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not your booking")
+
+    try:
+        result = await crud_booking.cancel_booking(booking_id)
+
+        if not result.get('success'):
+            return CancelBookingResponse(
+                success=False,
+                message=result.get('error', 'Failed to cancel booking')
+            )
+
+        return CancelBookingResponse(
+            success=True,
+            message="Booking cancelled. No refund per theatre policy.",
+        )
+
+    except Exception as e:
+        logger.error(f"Error cancelling booking {booking_id}: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to cancel booking: {str(e)}"
@@ -267,7 +316,7 @@ async def get_booking(
         if not booking:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="Booking not found"
+                detail=_BOOKING_NOT_FOUND
             )
 
         # Basic Authorization: Owner or Admin
@@ -301,7 +350,7 @@ async def get_booking_tickets(
         if not booking:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="Booking not found"
+                detail=_BOOKING_NOT_FOUND
             )
 
         if not current_user.is_admin and str(booking.get('user_id')) != current_user.user_id:
