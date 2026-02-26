@@ -9,7 +9,8 @@ class BookingStatus(str, Enum):
     PENDING = "pending"
     CONFIRMED = "confirmed"
     CANCELLED = "cancelled"
-    EXPIRED = "expired"
+    CHANGED = "changed"  # Self-service showtime change
+    EXPIRED = "expired"  # Internal status: hold expired
 
 
 class SeatStatus(str, Enum):

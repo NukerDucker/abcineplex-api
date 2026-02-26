@@ -407,6 +407,72 @@ async def release_expired_reservations(_: CurrentUser = Depends(get_admin_user))
         )
 
 
+# ========== Self-Service Endpoints ==========
+
+@router.post("/{booking_id}/change-showtime")
+async def change_showtime(
+    booking_id: UUID,
+    new_showtime_id: int,
+    new_seat_ids: List[int],
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """
+    Self-service showtime change. No refund; difference charged if new showtime is more expensive.
+    User must make the change at least 30 minutes before original showtime starts.
+    """
+    try:
+        # TODO: Implement full business logic
+        # - Validate booking exists and belongs to user
+        # - Validate new showtime exists and is >= 30 min away
+        # - Validate seats are available
+        # - Calculate price difference
+        # - Update booking status to "changed"
+        # - Update booking_seats with new seats
+        raise HTTPException(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED,
+            detail="Endpoint not yet implemented"
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error changing showtime: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to change showtime: {str(e)}"
+        )
+
+
+@router.post("/{booking_id}/change-seat")
+async def change_seat(
+    booking_id: UUID,
+    new_seat_ids: List[int],
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """
+    Self-service seat change within the same showtime.
+    User can change seats anytime before showtime starts.
+    """
+    try:
+        # TODO: Implement full business logic
+        # - Validate booking exists and belongs to user
+        # - Validate showtime hasn't started yet
+        # - Validate seats are available
+        # - Update booking_seats with new seats
+        # - Return updated booking
+        raise HTTPException(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED,
+            detail="Endpoint not yet implemented"
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error changing seat: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to change seat: {str(e)}"
+        )
+
+
 # ========== Admin Endpoints (Optional) ==========
 
 @router.get("/admin/all")
