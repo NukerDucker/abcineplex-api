@@ -117,7 +117,7 @@ async def reserve_seats(
     Starts the 5-minute countdown timer.
     """
     try:
-        result = await crud_booking.reserve_seats(request)
+        result = await crud_booking.reserve_seats(request, user_id=current_user.user_id)
 
         if not result.get('success'):
             return ReserveSeatResponse(

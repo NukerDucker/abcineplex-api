@@ -166,12 +166,11 @@ async def hold_seats(
     price = float(showtime.get("ticket_price_normal") or showtime.get("base_price") or 0)
 
     req = ReserveSeatRequest(
-        user_id=UUID(current_user.user_id),
         showtime_id=showtime_id,
         seat_ids=body.seat_ids,
         price_per_seat=price,
     )
-    result = await crud_booking.reserve_seats(req)
+    result = await crud_booking.reserve_seats(req, user_id=current_user.user_id)
 
     if not result.get("success"):
         error = result.get("error", "Seats unavailable")

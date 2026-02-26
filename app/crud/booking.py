@@ -57,7 +57,7 @@ class CRUDBooking:
 
     # ========== Booking Operations ==========
 
-    async def reserve_seats(self, request: ReserveSeatRequest) -> Dict[str, Any]:
+    async def reserve_seats(self, request: ReserveSeatRequest, user_id: str) -> Dict[str, Any]:
         """
         Reserve seats for a user (Step 1: User proceeds to payment)
         Calls the Supabase RPC function reserve_seats
@@ -65,7 +65,7 @@ class CRUDBooking:
         try:
             response = await asyncio.to_thread(
                 lambda: self.client.rpc('reserve_seats', {
-                    'p_user_id': str(request.user_id),
+                    'p_user_id': str(user_id),
                     'p_showtime_id': request.showtime_id,
                     'p_seat_ids': request.seat_ids,
                     'p_price_per_seat': request.price_per_seat

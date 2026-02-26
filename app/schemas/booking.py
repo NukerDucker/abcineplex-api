@@ -41,7 +41,6 @@ class AvailableSeat(BaseModel):
 # ===== Booking Request Schemas =====
 class ReserveSeatRequest(BaseModel):
     """Request to reserve seats (Step 1: User proceeds to payment)"""
-    user_id: UUID = Field(..., description="User UUID from Supabase auth")
     showtime_id: int = Field(..., description="Showtime ID")
     seat_ids: List[int] = Field(..., min_length=1, max_length=10, description="List of seat IDs to reserve")
     price_per_seat: float = Field(default=15.00, gt=0, description="Price per seat in USD")
@@ -49,7 +48,6 @@ class ReserveSeatRequest(BaseModel):
     class Config:
         json_schema_extra = {
             "example": {
-                "user_id": "123e4567-e89b-12d3-a456-426614174000",
                 "showtime_id": 1,
                 "seat_ids": [1, 2, 3],
                 "price_per_seat": 15.00
