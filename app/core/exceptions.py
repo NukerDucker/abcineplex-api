@@ -43,8 +43,8 @@ async def app_exception_handler(request: Request, exc: AppException):
     return JSONResponse(
         status_code=exc.status_code,
         content={
-            "detail": exc.message,
-            **exc.details
+            "message": exc.message,
+            "errors": exc.details.get("errors", []) if exc.details else []
         }
     )
 
@@ -54,18 +54,26 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
     logger.warning(f"HTTPException: {exc.detail} | Status: {exc.status_code} | Path: {request.url.path}")
     return JSONResponse(
         status_code=exc.status_code,
-        content={"detail": exc.detail}
+        content={"message": str(exc.detail), "errors": []}
     )
 
 
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     """Handle validation errors"""
     logger.warning(f"ValidationError: {exc.errors()} | Path: {request.url.path}")
+    # Simplify error format: extract field name and message
+    errors = []
+    for error in exc.errors():
+        field = ".".join(str(x) for x in error.get("loc", [])[1:])  # Skip 'body' prefix
+        errors.append({
+            "field": field,
+            "message": error.get("msg", "Validation error")
+        })
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
         content={
-            "detail": "Validation error",
-            "errors": exc.errors()
+            "message": "Validation error",
+            "errors": errors
         }
     )
 
@@ -76,7 +84,7 @@ async def generic_exception_handler(request: Request, exc: Exception):
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content={
-            "detail": "An internal error occurred",
-            "error": str(exc) if logger.level <= logging.DEBUG else "Internal server error"
+            "message": "Internal server error",
+            "errors": []
         }
     )
