@@ -40,7 +40,7 @@ async def create_review(
         review_data["user_id"] = current_user.user_id
         review_data["username"] = current_user.user_name or current_user.email.split("@")[0]
 
-        return await crud_review.create(review_data)
+        return await crud_review.create(review_data, user_id=current_user.user_id)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 

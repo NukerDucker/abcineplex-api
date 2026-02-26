@@ -32,14 +32,45 @@ class CRUDReview:
             "items": items
         }
 
-    async def create(self, review_in: dict) -> dict:
-        """Create new review"""
-        response = await asyncio.to_thread(
-            lambda: self.client.table("reviews").insert(review_in).execute()
-        )
-        if not response.data:
-            raise ValueError("Create failed")
-        return response.data[0]
+    async def create(self, review_in: dict, user_id: str) -> dict:
+        """Create new review with booking validation"""
+        booking_id = review_in.get('booking_id')
+        movie_id = review_in.get('movie_id')
+
+        # Validate booking exists and belongs to user
+        def validate_and_create():
+            # Query booking with its showtime info
+            booking_res = self.client.table('bookings') \
+                .select('id, user_id, status, showtime_id') \
+                .eq('id', booking_id) \
+                .eq('user_id', user_id) \
+                .maybe_single() \
+                .execute()
+
+            if not booking_res.data:
+                raise ValueError("Booking not found or does not belong to you")
+
+            booking = booking_res.data
+            if booking.get('status') != 'confirmed':
+                raise ValueError("You can only review movies from confirmed bookings")
+
+            # Verify the showtime's movie matches the review's movie_id
+            showtime_res = self.client.table('showtimes') \
+                .select('movie_id') \
+                .eq('id', booking.get('showtime_id')) \
+                .maybe_single() \
+                .execute()
+
+            if not showtime_res.data or showtime_res.data.get('movie_id') != movie_id:
+                raise ValueError("The movie in your booking does not match the movie being reviewed")
+
+            # All validations passed, insert review
+            insert_res = self.client.table("reviews").insert(review_in).execute()
+            if not insert_res.data:
+                raise ValueError("Create failed")
+            return insert_res.data[0]
+
+        return await asyncio.to_thread(validate_and_create)
 
     async def update(self, review_id: int, review_in: dict, user_id: str) -> Optional[dict]:
         """Update review text or rating if owned by user"""
