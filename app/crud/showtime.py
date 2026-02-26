@@ -115,7 +115,7 @@ class CRUDShowtime:
         """Get all seats for a screen ordered for seat-map rendering."""
         response = await asyncio.to_thread(
             lambda: self.client.table("seats")
-                .select("id, row_label, seat_number, seat_type, status")
+                .select("id, row_label, seat_number, status")
                 .eq("screen_id", screen_id)
                 .order("row_label")
                 .order("seat_number")
