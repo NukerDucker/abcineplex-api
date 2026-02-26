@@ -63,7 +63,6 @@ class CRUDMovie:
 
         def _fetch():
             query = self.client.table("movies").select("*", count="exact")
-            # status: spec uses now_showing/upcoming/all; DB uses release_status
             if status and status != "all":
                 query = query.eq("release_status", status)
             # genre filter against array column

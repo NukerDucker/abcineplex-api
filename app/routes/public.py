@@ -6,7 +6,7 @@ from app.core.supabase import supabase_admin
 from app.core.exceptions import NotFoundException
 from app.core.security import get_admin_user
 
-router = APIRouter(prefix="/api", tags=["public"])
+router = APIRouter(prefix="/api/v1", tags=["public"])
 crud_public = CRUDPublic(supabase_admin)
 
 

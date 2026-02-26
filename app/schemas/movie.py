@@ -60,6 +60,11 @@ class MovieSummary(BaseModel):
     runtime_minutes: int = 0
     rating_tmdb: Optional[float] = None
     poster_url: Optional[str] = None
+    banner_url: Optional[str] = None
+    release_date: Optional[date] = None
+    content_rating: Optional[str] = None
+    audio_languages: Optional[List[str]] = None
+    subtitle_languages: Optional[List[str]] = None
     status: Optional[str] = None
 
     @model_validator(mode="before")
@@ -93,6 +98,9 @@ class MovieDetail(BaseModel):
     release_date: Optional[date] = None
     rating_tmdb: Optional[float] = None
     rating_count: Optional[int] = None
+    content_rating: Optional[str] = None
+    audio_languages: Optional[List[str]] = None
+    subtitle_languages: Optional[List[str]] = None
     credits_duration_minutes: int = 5
     status: Optional[str] = None
     created_at: Optional[datetime] = None
