@@ -7,7 +7,7 @@ class ReviewBase(BaseModel):
     movie_id: int
     booking_id: int
     review_text: str
-    rating: int = Field(..., ge=1, le=5)
+    rating: float = Field(..., ge=1.0, le=5.0, description="Rating: 1.0 to 5.0")
 
 
 class ReviewCreate(ReviewBase):
@@ -16,7 +16,7 @@ class ReviewCreate(ReviewBase):
 
 class ReviewUpdate(BaseModel):
     review_text: Optional[str] = None
-    rating: Optional[int] = Field(None, ge=1, le=5)
+    rating: Optional[float] = Field(None, ge=1.0, le=5.0, description="Rating: 1.0 to 5.0")
 
 
 class ReviewResponse(BaseModel):
@@ -26,7 +26,7 @@ class ReviewResponse(BaseModel):
     user_id: str
     username: str
     review_text: str
-    rating: int
+    rating: float
     like_count: int
     created_at: datetime
     updated_at: datetime
