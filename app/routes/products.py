@@ -15,7 +15,7 @@ from app.core.supabase import supabase_admin
 from app.core.security import get_current_user, CurrentUser
 from app.core.exceptions import NotFoundException
 
-router = APIRouter(prefix="/api/products", tags=["products"])
+router = APIRouter(prefix="/api/v1/products", tags=["products"])
 crud_product = CRUDProduct(supabase_admin)
 
 

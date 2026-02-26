@@ -12,7 +12,7 @@ from app.core.supabase import supabase_admin
 from app.core.security import get_current_user, CurrentUser
 from app.core.exceptions import NotFoundException, UnauthorizedException
 
-router = APIRouter(prefix="/api/orders", tags=["orders"])
+router = APIRouter(prefix="/api/v1/orders", tags=["orders"])
 crud_order = CRUDOrder(supabase_admin)
 
 

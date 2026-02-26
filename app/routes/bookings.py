@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 
 _BOOKING_NOT_FOUND = "Booking not found"
 
-router = APIRouter(prefix="/api/bookings", tags=["bookings"])
+router = APIRouter(prefix="/api/v1/bookings", tags=["bookings"])
 crud_booking = CRUDBooking(supabase_admin)
 
 

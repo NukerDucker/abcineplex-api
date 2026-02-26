@@ -12,7 +12,7 @@ from app.core.supabase import supabase_admin
 from app.core.security import get_current_user, CurrentUser
 from app.core.exceptions import NotFoundException, AppException
 
-router = APIRouter(prefix="/api/reviews", tags=["reviews"])
+router = APIRouter(prefix="/api/v1/reviews", tags=["reviews"])
 crud_review = CRUDReview(supabase_admin)
 
 

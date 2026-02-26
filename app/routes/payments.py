@@ -16,7 +16,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/payments", tags=["payments"])
+router = APIRouter(prefix="/api/v1/payments", tags=["payments"])
 crud_booking = CRUDBooking(supabase_admin)
 
 # ── In-memory mock payment store ──────────────────────────────────────────────
