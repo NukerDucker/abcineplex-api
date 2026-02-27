@@ -33,11 +33,9 @@ class CRUDShowtime:
             lambda: self.client.table("showtimes")
                 .update(data)
                 .eq("id", showtime_id)
-                .select()
-                .maybe_single()
                 .execute()
         )
-        return response.data
+        return response.data[0]
 
     async def delete(self, showtime_id: int) -> bool:
         """Delete a showtime"""

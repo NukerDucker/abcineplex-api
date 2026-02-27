@@ -27,11 +27,9 @@ class CRUDMovie:
             lambda: self.client.table("movies")
                 .update(data)
                 .eq("id", movie_id)
-                .select()
-                .maybe_single()
                 .execute()
         )
-        return response.data
+        return response.data[0]
 
     async def delete(self, movie_id: int) -> bool:
         response = await asyncio.to_thread(
