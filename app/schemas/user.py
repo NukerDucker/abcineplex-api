@@ -12,7 +12,7 @@ class UserProfile(BaseModel):
     user_name: str
     first_name: str
     last_name: str
-    is_admin: bool = False  # Added: Critical for frontend permission checks
+    is_admin: bool = False
     phone: Optional[str] = None
     date_of_birth: Optional[date] = None
     is_student: bool = False
@@ -20,6 +20,7 @@ class UserProfile(BaseModel):
     membership_tier: str = "free"
     reward_points: int = 0
     attendance_streak: int = 0
+    has_password: bool = True  # False for OAuth users who haven't set a password yet
 
     @model_validator(mode="before")
     @classmethod
@@ -42,11 +43,20 @@ class UserProfile(BaseModel):
             out.setdefault("first_name", "")
             out.setdefault("last_name", "")
 
-        # 3. Map Points (loyalty_points -> reward_points)
+        # 3. user_name fallback — Google OAuth users won't have one until they update it
+        if not data.get("user_name"):
+            email = data.get("email", "")
+            out["user_name"] = email if email else "user"
+
+        # 4. Map Points (loyalty_points -> reward_points)
         out.setdefault("reward_points", data.get("loyalty_points", 0))
 
-        # 4. Map Admin Status (explicitly ensure it's captured from DB)
+        # 5. Map Admin Status (explicitly ensure it's captured from DB)
         out.setdefault("is_admin", data.get("is_admin", False))
+
+        # 6. has_password: True if password_hash column is set
+        raw_hash = data.get("password_hash")
+        out["has_password"] = bool(raw_hash)
 
         return out
 
@@ -104,7 +114,7 @@ class UserPointsResponse(BaseModel):
 
 class AdminUserResponse(BaseModel):
     """Full user row for admin management — uses raw DB field names."""
-    user_id: str
+    id: str
     email: str
     user_name: Optional[str] = None
     full_name: Optional[str] = None
@@ -114,7 +124,7 @@ class AdminUserResponse(BaseModel):
     is_active: bool = True
     is_student: bool = False
     student_id_verified: bool = False
-    membership_tier: str = "free"
+    membership_tier: str = "free"  # Not in DB; kept for frontend compat
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
@@ -130,4 +140,3 @@ class AdminUserUpdate(BaseModel):
     is_active: Optional[bool] = None
     is_student: Optional[bool] = None
     student_id_verified: Optional[bool] = None
-    membership_tier: Optional[str] = None
