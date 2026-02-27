@@ -28,8 +28,12 @@ class CRUDBooking:
         response = await asyncio.to_thread(
             lambda: self.client.rpc(fn, params).execute()
         )
-        # The RPC returns the JSONB value directly in response.data
-        return response.data or {}
+        if isinstance(response.data, dict):
+            return response.data
+        elif isinstance(response.data, (str, int, float, list)):
+            return {"result": response.data}
+        else:
+            return {}
 
     # ── Write operations (via RPC) ────────────────────────────
 
@@ -72,7 +76,7 @@ class CRUDBooking:
                     .single()
                     .execute()
             )
-            return res.data or None
+            return res.data if isinstance(res.data, dict) else None
         except Exception:
             return None
 
@@ -253,4 +257,3 @@ class CRUDBooking:
             return None
         except Exception:
             return None
-
