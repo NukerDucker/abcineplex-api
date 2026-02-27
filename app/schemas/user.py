@@ -82,6 +82,7 @@ class BookingSummary(BaseModel):
     total_amount: Optional[float] = None
     created_at: Optional[datetime] = None
     movie_title: Optional[str] = None
+    poster_url: Optional[str] = None
     screen_name: Optional[str] = None
     showtime_start: Optional[str] = None
     seats: Optional[List[str]] = None

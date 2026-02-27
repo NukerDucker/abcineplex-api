@@ -40,17 +40,17 @@ async def initiate_payment(
     Initiate a mock payment for a booking.
     Returns a payment_id to be confirmed in the next step.
     """
-    booking = await crud_booking.get_booking_by_id(request.booking_id)
+    booking = await crud_booking.get_booking_by_id(str(request.booking_id))
     if not booking:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Booking not found")
 
     if not current_user.is_admin and str(booking.get("user_id")) != current_user.user_id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not your booking")
 
-    if booking.get("status") not in ("pending",):
+    if booking.get("booking_status") not in ("pending",):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Booking is not in a payable state. Status: {booking.get('status')}",
+            detail=f"Booking is not in a payable state. Status: {booking.get('booking_status')}",
         )
 
     payment_id = str(uuid4())
@@ -88,7 +88,7 @@ async def confirm_payment(
     if not record:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Payment not found")
 
-    booking_id: int = record["booking_id"]
+    booking_id: str = str(record["booking_id"])
 
     # Resolve success: both the request flag AND the stored flag must agree
     is_success = request.mock_result and record.get("mock_should_succeed", True)
@@ -107,8 +107,8 @@ async def confirm_payment(
     # Delegate to the existing booking confirmation logic
     try:
         result = await crud_booking.confirm_payment(
-            booking_id,
-            payment_intent_id=f"{record['payment_method']}_{payment_id}",
+            str(booking_id),
+            payment_intent_id=record['payment_method'],
         )
     except Exception as e:
         logger.error(f"confirm_payment RPC failed for payment {payment_id}: {e}")

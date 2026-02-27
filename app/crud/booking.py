@@ -1,425 +1,256 @@
-from typing import Optional, List, Dict, Any
-from uuid import UUID
+"""
+Booking CRUD — all write operations go through PostgreSQL RPC functions
+for atomicity. Read operations use direct table/view queries.
+"""
+from typing import Any, Dict, List, Optional
 from supabase import Client
 from app.schemas.booking import (
-    ReserveSeatRequest,
     BookingDetail,
+    ReserveSeatRequest,
     AvailableSeat,
     ScreenInfo,
-    ScreenStatistics
 )
 import logging
 import asyncio
-import json
 
 logger = logging.getLogger(__name__)
 
+
 class CRUDBooking:
-    """CRUD operations for bookings using Supabase RPC functions"""
 
-    def __init__(self, supabase_client: Client):
-        self.client = supabase_client
+    def __init__(self, client: Client):
+        self.client = client
 
-    # ========== Seat Operations ==========
+    # ── Helpers ───────────────────────────────────────────────
 
-    async def get_available_seats(self, screen_id: int) -> List[AvailableSeat]:
-        """Get all available seats for a screen"""
-        try:
-            response = await asyncio.to_thread(
-                lambda: self.client.rpc('get_available_seats', {
-                    'p_screen_id': screen_id
-                }).execute()
-            )
+    async def _rpc(self, fn: str, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Call a Supabase RPC function and return its JSONB result."""
+        response = await asyncio.to_thread(
+            lambda: self.client.rpc(fn, params).execute()
+        )
+        # The RPC returns the JSONB value directly in response.data
+        return response.data or {}
 
-            if response.data:
-                return [AvailableSeat(**seat) for seat in response.data]
-            return []
-        except Exception as e:
-            logger.error(f"Error getting available seats: {e}")
-            raise
-
-    async def get_all_seats_for_screen(self, screen_id: int) -> List[Dict[str, Any]]:
-        """Get all seats for a screen (including unavailable)"""
-        try:
-            response = await asyncio.to_thread(
-                lambda: self.client.table('seats')
-                    .select('*')
-                    .eq('screen_id', screen_id)
-                    .order('row_label', desc=False)
-                    .order('seat_number', desc=False)
-                    .execute()
-            )
-
-            return response.data if response.data else []
-        except Exception as e:
-            logger.error(f"Error getting seats for screen: {e}")
-            raise
-
-    # ========== Booking Operations ==========
+    # ── Write operations (via RPC) ────────────────────────────
 
     async def reserve_seats(self, request: ReserveSeatRequest, user_id: str) -> Dict[str, Any]:
-        """
-        Reserve seats for a user (Step 1: User proceeds to payment)
-        Calls the Supabase RPC function reserve_seats
-        """
-        try:
-            response = await asyncio.to_thread(
-                lambda: self.client.rpc('reserve_seats', {
-                    'p_user_id': str(user_id),
-                    'p_showtime_id': request.showtime_id,
-                    'p_seat_ids': request.seat_ids,
-                    'p_price_per_seat': request.price_per_seat
-                }).execute()
-            )
+        """Create a pending booking with a 5-minute hold. Atomic — no race conditions."""
+        return await self._rpc("reserve_seats", {
+            "p_user_id":        str(user_id),
+            "p_showtime_id":    request.showtime_id,
+            "p_seat_ids":       request.seat_ids,
+            "p_price_per_seat": request.price_per_seat,
+            "p_ticket_type":    request.ticket_type,
+        })
 
-            if response.data:
-                # Handle bytes response from Supabase
-                if isinstance(response.data, bytes):
-                    return json.loads(response.data.decode('utf-8'))
-                return response.data
-            raise ValueError("No data returned from reserve_seats")
-        except Exception as e:
-            # Try to extract JSON from error details
-            data = self._extract_json_from_error(e)
-            if data:
-                return data
-            logger.error(f"Error reserving seats: {e}")
-            raise
+    async def confirm_payment(self, booking_id: str, payment_intent_id: Optional[str] = None) -> Dict[str, Any]:
+        """Confirm payment: sets booking to confirmed and issues tickets."""
+        return await self._rpc("confirm_booking_payment", {
+            "p_booking_id":     str(booking_id),
+            "p_payment_method": payment_intent_id or "mock_card",
+        })
 
-    async def confirm_payment(self, booking_id: int, payment_intent_id: Optional[str] = None) -> Dict[str, Any]:
-        """
-        Confirm payment for a booking (Step 2: Payment successful)
-        Calls the Supabase RPC function confirm_payment
-        """
-        try:
-            response = await asyncio.to_thread(
-                lambda: self.client.rpc('confirm_payment', {
-                    'p_booking_id': booking_id
-                }).execute()
-            )
-
-            if response.data:
-                # Handle bytes response from Supabase
-                data = response.data
-                if isinstance(data, bytes):
-                    data = json.loads(data.decode('utf-8'))
-
-                # Optionally store payment_intent_id
-                if payment_intent_id:
-                    await asyncio.to_thread(
-                        lambda: self.client.table('bookings')
-                            .update({'payment_intent_id': payment_intent_id})
-                            .eq('id', booking_id)
-                            .execute()
-                    )
-
-                return data
-            raise ValueError("No data returned from confirm_payment")
-        except Exception as e:
-            # Try to extract JSON from error details
-            data = self._extract_json_from_error(e)
-            if data:
-                # Optionally store payment_intent_id
-                if payment_intent_id:
-                    await asyncio.to_thread(
-                        lambda: self.client.table('bookings')
-                            .update({'payment_intent_id': payment_intent_id})
-                            .eq('id', booking_id)
-                            .execute()
-                    )
-                return data
-
-            logger.error(f"Error confirming payment: {e}")
-            raise
-
-    async def cancel_booking(self, booking_id: int) -> Dict[str, Any]:
-        """
-        Cancel a booking (User cancels before payment)
-        Calls the Supabase RPC function cancel_booking
-        """
-        try:
-            response = await asyncio.to_thread(
-                lambda: self.client.rpc('cancel_booking', {
-                    'p_booking_id': booking_id
-                }).execute()
-            )
-
-            if response.data:
-                # Handle bytes response from Supabase
-                if isinstance(response.data, bytes):
-                    return json.loads(response.data.decode('utf-8'))
-                return response.data
-            raise ValueError("No data returned from cancel_booking")
-        except Exception as e:
-            # Try to extract JSON from error details
-            data = self._extract_json_from_error(e)
-            if data:
-                return data
-            logger.error(f"Error cancelling booking: {e}")
-            raise
+    async def cancel_booking(self, booking_id: str) -> Dict[str, Any]:
+        """Cancel a booking. No refund. Idempotent."""
+        return await self._rpc("cancel_booking", {
+            "p_booking_id": str(booking_id),
+        })
 
     async def release_expired_reservations(self) -> Dict[str, Any]:
-        """
-        Release expired reservations (Called by worker)
-        Calls the Supabase RPC function release_expired_reservations
-        """
-        try:
-            response = await asyncio.to_thread(
-                lambda: self.client.rpc('release_expired_reservations').execute()
-            )
+        """Cancel all pending bookings whose 5-minute hold has expired."""
+        return await self._rpc("release_expired_reservations", {})
 
-            if response.data:
-                # Handle bytes response from Supabase
-                if isinstance(response.data, bytes):
-                    return json.loads(response.data.decode('utf-8'))
-                return response.data
-            return {'released_count': 0}
-        except Exception as e:
-            # Try to extract JSON from error details
-            data = self._extract_json_from_error(e)
-            if data:
-                return data
-            logger.error(f"Error releasing expired reservations: {e}")
-            raise
+    # ── Read operations (direct table/view queries) ───────────
 
-    async def get_booking_by_id(self, booking_id: int) -> Optional[Dict[str, Any]]:
-        """Get booking details by ID"""
+    async def get_booking_by_id(self, booking_id: str) -> Optional[Dict[str, Any]]:
+        """Fetch raw booking row by UUID. Returns None if not found."""
         try:
-            response = await asyncio.to_thread(
-                lambda: self.client.table('bookings')
-                    .select('*')
-                    .eq('id', booking_id)
+            res = await asyncio.to_thread(
+                lambda: self.client.table("bookings")
+                    .select("*")
+                    .eq("id", str(booking_id))
                     .single()
                     .execute()
             )
-
-            return response.data if response.data else None
-        except Exception as e:
-            logger.error(f"Error getting booking by ID: {e}")
+            return res.data or None
+        except Exception:
             return None
 
-    async def get_booking_details(self, booking_id: int) -> Optional[BookingDetail]:
-        """Get detailed booking information with seats and QR codes"""
+    async def get_booking_details(self, booking_id: str) -> Optional[BookingDetail]:
+        """Fetch enriched booking detail (movie, theatre, seats, QR codes)."""
         try:
-            response = await asyncio.to_thread(
-                lambda: self.client.from_('booking_details')
-                    .select('*')
-                    .eq('booking_id', booking_id)
+            res = await asyncio.to_thread(
+                lambda: self.client.from_("booking_details")
+                    .select("*")
+                    .eq("booking_id", str(booking_id))
                     .single()
                     .execute()
             )
-
-            if not response.data:
+            if not res.data:
                 return None
+            data: Dict[str, Any] = dict(res.data)
 
-            data: Dict[str, Any] = dict(response.data)  # type: ignore[arg-type]
-
-            # Enrich with ticket/QR data if booking is confirmed
-            tickets: List[Dict[str, Any]] = []
-            qr_code_data: Optional[str] = None
-            if data.get('booking_status') == 'confirmed':
+            # Attach tickets if confirmed
+            if data.get("booking_status") == "confirmed":
                 tickets = await self.get_tickets_for_booking(booking_id)
+                data["tickets"] = tickets or None
                 if tickets:
-                    qr_code_data = ','.join(
-                        t['qr_code_slug'] for t in tickets if t.get('qr_code_slug')
+                    data["qr_code_data"] = ",".join(
+                        t["qr_code_slug"] for t in tickets if t.get("qr_code_slug")
                     ) or None
 
-            data['qr_code_data'] = qr_code_data
-            data['tickets'] = tickets if tickets else None
             return BookingDetail(**data)
         except Exception as e:
-            logger.error(f"Error getting booking details: {e}")
+            logger.error(f"get_booking_details error: {e}")
             return None
 
-    async def get_user_bookings(self, user_id: UUID, status: Optional[str] = None) -> List[BookingDetail]:
-        """Get all bookings for a user"""
+    async def get_user_bookings(self, user_id: str, status: Optional[str] = None) -> List[BookingDetail]:
+        """All bookings for a user, newest first."""
         try:
             def _fetch():
-                query = self.client.from_('booking_details')\
-                    .select('*')\
-                    .eq('user_id', str(user_id))\
-                    .order('created_at', desc=True)
-
-                if status:
-                    query = query.eq('booking_status', status)
-
-                return query.execute()
-
-            response = await asyncio.to_thread(_fetch)
-
-            if response.data:
-                return [BookingDetail(**booking) for booking in response.data]
-            return []
-        except Exception as e:
-            logger.error(f"Error getting user bookings: {e}")
-            raise
-
-    async def get_tickets_for_booking(self, booking_id: int) -> List[Dict[str, Any]]:
-        """Get all tickets for a booking"""
-        try:
-            response = await asyncio.to_thread(
-                lambda: self.client.table('tickets')
-                    .select('*, seats(row_label, seat_number)')
-                    .eq('booking_id', booking_id)
-                    .execute()
-            )
-
-            if response.data:
-                # Format the data
-                tickets = []
-                for ticket in response.data:
-                    ticket_info = {
-                        'ticket_id': ticket['id'],
-                        'booking_id': ticket['booking_id'],
-                        'seat_id': ticket['seat_id'],
-                        'price_paid': ticket['price_paid'],
-                        'qr_code_slug': ticket['qr_code_slug'],
-                        'row_label': ticket['seats']['row_label'],
-                        'seat_number': ticket['seats']['seat_number']
-                    }
-                    tickets.append(ticket_info)
-                return tickets
-            return []
-        except Exception as e:
-            logger.error(f"Error getting tickets for booking: {e}")
-            raise
-
-    # ========== Screen Operations ==========
-
-    async def get_all_screens(self) -> List[ScreenInfo]:
-        """Get all screens"""
-        try:
-            response = await asyncio.to_thread(
-                lambda: self.client.table('screens')
-                    .select('*')
-                    .execute()
-            )
-
-            if response.data:
-                return [ScreenInfo(
-                    screen_id=screen['id'],
-                    name=screen['name'],
-                    size=screen['size'],
-                    total_seats=screen['total_seats']
-                ) for screen in response.data]
-            return []
-        except Exception as e:
-            logger.error(f"Error getting screens: {e}")
-            raise
-
-    async def get_screen_by_id(self, screen_id: int) -> Optional[ScreenInfo]:
-        """Get screen by ID"""
-        try:
-            response = await asyncio.to_thread(
-                lambda: self.client.table('screens')
-                    .select('*')
-                    .eq('id', screen_id)
-                    .single()
-                    .execute()
-            )
-
-            if response.data:
-                screen = response.data
-                return ScreenInfo(
-                    screen_id=screen['id'],
-                    name=screen['name'],
-                    size=screen['size'],
-                    total_seats=screen['total_seats']
+                q = (
+                    self.client.from_("booking_details")
+                    .select("*")
+                    .eq("user_id", str(user_id))
+                    .order("created_at", desc=True)
                 )
-            return None
+                if status:
+                    q = q.eq("booking_status", status)
+                return q.execute()
+
+            res = await asyncio.to_thread(_fetch)
+            return [BookingDetail(**row) for row in (res.data or [])]
         except Exception as e:
-            logger.error(f"Error getting screen by ID: {e}")
-            return None
-
-    async def get_screen_statistics(self) -> List[ScreenStatistics]:
-        """Get occupancy statistics for all screens"""
-        try:
-            response = await asyncio.to_thread(
-                lambda: self.client.from_('screen_statistics')
-                    .select('*')
-                    .execute()
-            )
-
-            if response.data:
-                return [ScreenStatistics(**stat) for stat in response.data]
+            logger.error(f"get_user_bookings error: {e}")
             return []
-        except Exception as e:
-            logger.error(f"Error getting screen statistics: {e}")
-            raise
 
-    # ========== Admin Operations ==========
-
-    async def update_booking_status(self, booking_id: int, status: str) -> Optional[Dict[str, Any]]:
-        """Update booking status (admin only)"""
+    async def get_tickets_for_booking(self, booking_id: str) -> List[Dict[str, Any]]:
+        """All tickets for a booking, with seat labels."""
         try:
-            response = await asyncio.to_thread(
-                lambda: self.client.table('bookings')
-                    .update({'status': status})
-                    .eq('id', booking_id)
+            res = await asyncio.to_thread(
+                lambda: self.client.table("tickets")
+                    .select("*, seats(row_label, seat_number)")
+                    .eq("booking_id", str(booking_id))
                     .execute()
             )
-
-            if response.data:
-                return response.data[0]
-            return None
+            tickets = []
+            for t in (res.data or []):
+                seat = t.get("seats") or {}
+                tickets.append({
+                    "ticket_id":    t["id"],
+                    "booking_id":   t["booking_id"],
+                    "seat_id":      t["seat_id"],
+                    "price_paid":   t["price_paid"],
+                    "qr_code_slug": t["qr_code_slug"],
+                    "row_label":    seat.get("row_label", ""),
+                    "seat_number":  seat.get("seat_number", 0),
+                })
+            return tickets
         except Exception as e:
-            logger.error(f"Error updating booking status: {e}")
+            logger.error(f"get_tickets_for_booking error: {e}")
+            return []
+
+    # ── Admin operations ──────────────────────────────────────
+
+    async def update_booking_status(self, booking_id: str, status: str) -> Optional[Dict[str, Any]]:
+        """Admin: directly update booking status."""
+        try:
+            res = await asyncio.to_thread(
+                lambda: self.client.table("bookings")
+                    .update({"booking_status": status})
+                    .eq("id", str(booking_id))
+                    .execute()
+            )
+            return res.data[0] if res.data else None
+        except Exception as e:
+            logger.error(f"update_booking_status error: {e}")
             raise
 
     async def get_all_bookings(
         self,
         status: Optional[str] = None,
         limit: int = 100,
-        offset: int = 0
+        offset: int = 0,
     ) -> List[Dict[str, Any]]:
-        """Get all bookings (admin only)"""
+        """Admin: list all bookings with optional status filter."""
         try:
             def _fetch():
-                query = self.client.table('bookings')\
-                    .select('*')\
-                    .order('created_at', desc=True)\
-                    .limit(limit)\
+                q = (
+                    self.client.table("bookings")
+                    .select("*")
+                    .order("created_at", desc=True)
+                    .limit(limit)
                     .offset(offset)
-
+                )
                 if status:
-                    query = query.eq('status', status)
+                    q = q.eq("booking_status", status)
+                return q.execute()
 
-                return query.execute()
-
-            response = await asyncio.to_thread(_fetch)
-            return response.data if response.data else []
+            res = await asyncio.to_thread(_fetch)
+            return res.data or []
         except Exception as e:
-            logger.error(f"Error getting all bookings: {e}")
+            logger.error(f"get_all_bookings error: {e}")
             raise
 
     async def get_pending_bookings_count(self) -> int:
-        """Get count of pending bookings"""
+        """Count of currently pending bookings (active holds)."""
         try:
-            response = await asyncio.to_thread(
-                lambda: self.client.table('bookings')
-                    .select('id', count='exact')
-                    .eq('status', 'pending')
+            res = await asyncio.to_thread(
+                lambda: self.client.table("bookings")
+                    .select("id", count="exact")
+                    .eq("booking_status", "pending")
                     .execute()
             )
-
-            return response.count if response.count else 0
-        except Exception as e:
-            logger.error(f"Error getting pending bookings count: {e}")
+            return res.count or 0
+        except Exception:
             return 0
 
-    # ========== Helpers ==========
+    # ── Legacy screen endpoints (kept for /bookings/screens) ──
 
-    def _extract_json_from_error(self, error: Exception) -> Optional[Dict[str, Any]]:
-        """
-        Try to extract JSON payload from a Supabase/PostgREST error detail.
-        Supabase RPC functions that RAISE exceptions embed JSON in the error message.
-        """
+    async def get_all_seats_for_screen(self, theatre_id: int) -> List[Dict[str, Any]]:
+        res = await asyncio.to_thread(
+            lambda: self.client.table("seats")
+                .select("*")
+                .eq("theatre_id", theatre_id)
+                .order("row_label").order("seat_number")
+                .execute()
+        )
+        return res.data or []
+
+    async def get_available_seats(self, theatre_id: int) -> List[AvailableSeat]:
+        rows = await self.get_all_seats_for_screen(theatre_id)
+        return [
+            AvailableSeat(
+                seat_id=r["id"],
+                row_label=r["row_label"].strip(),
+                seat_number=r["seat_number"],
+                status="available" if r.get("is_active", True) else "disabled",
+            )
+            for r in rows
+        ]
+
+    async def get_all_screens(self) -> List[ScreenInfo]:
+        res = await asyncio.to_thread(
+            lambda: self.client.table("theatres").select("*").execute()
+        )
+        return [
+            ScreenInfo(theatre_id=r["id"], name=r["name"], total_seats=r["total_seats"])
+            for r in (res.data or [])
+        ]
+
+    async def get_screen_by_id(self, theatre_id: int) -> Optional[ScreenInfo]:
         try:
-            error_str = str(error)
-            start = error_str.find('{')
-            end = error_str.rfind('}')
-            if start != -1 and end != -1 and end > start:
-                return json.loads(error_str[start:end + 1])
+            res = await asyncio.to_thread(
+                lambda: self.client.table("theatres")
+                    .select("*")
+                    .eq("id", theatre_id)
+                    .single()
+                    .execute()
+            )
+            if res.data:
+                r = res.data
+                return ScreenInfo(theatre_id=r["id"], name=r["name"], total_seats=r["total_seats"])
+            return None
         except Exception:
-            pass
-        return None
+            return None
+

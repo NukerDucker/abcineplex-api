@@ -10,7 +10,7 @@ from app.crud.booking import CRUDBooking
 from app.schemas.showtime import (
     Showtime, ShowtimeCreate, ShowtimeUpdate,
     ShowtimeDetail, MovieRef, TheatreRef, TicketPrices,
-    SeatMapResponse, SeatLayout, SeatInMap, _STATUS_MAP,
+    SeatMapResponse, SeatLayout, SeatInMap,
     TimeCommitmentResponse, TTCComponents,
 )
 from app.schemas.seat import (
@@ -71,7 +71,6 @@ async def get_showtime(showtime_id: int):
         raise NotFoundException("Showtime", str(showtime_id))
 
     movie_row = raw.get("movies") or {}
-    screen_row = raw.get("screens") or {}
     runtime = int(movie_row.get("duration_minutes") or 0)
     credits_min = int(movie_row.get("credits_duration_minutes") or 5)
 
@@ -79,23 +78,23 @@ async def get_showtime(showtime_id: int):
     end_dt, end_credits_dt = _derive_times(start_dt, runtime, credits_min)
     raqs, ttc = _movie_raqs_ttc(movie_row)
 
-    screen_id = raw.get("screen_id")
+    theatre_id = raw.get("theatre_id")
     available = None
-    if screen_id:
-        occupancy = await crud_showtime.get_screen_occupancy(screen_id)
+    if theatre_id:
+        occupancy = await crud_showtime.get_screen_occupancy(theatre_id)
         available = occupancy.get("available_seats")
 
     return ShowtimeDetail(
         id=raw["id"],
         movie=MovieRef(id=movie_row.get("id", 0), title=movie_row.get("title", ""), runtime_minutes=runtime) if movie_row else None,
-        theatre=TheatreRef(id=screen_row.get("id", 0), name=screen_row.get("name", "")) if screen_row else None,
+        theatre=TheatreRef(id=theatre_id, name=f"Theatre {theatre_id}") if theatre_id else None,
         start_time=start_dt,
         end_time=end_dt,
         estimated_end_with_credits=end_credits_dt,
         format=raw.get("format"),
         language=raw.get("language"),
         available_seats=available,
-        total_seats=screen_row.get("total_seats"),
+        total_seats=raw.get("total_seats"),
         ticket_prices=TicketPrices(
             normal=raw.get("ticket_price_normal") or raw.get("base_price"),
             student=raw.get("ticket_price_student"),
@@ -109,21 +108,23 @@ async def get_showtime(showtime_id: int):
 @router.get("/{showtime_id}/seats", response_model=SeatMapResponse)
 async def get_showtime_seats(showtime_id: int):
     """Get seat map with availability.  Statuses: available | held | booked | disabled."""
+    # Cancel any expired holds in the DB before computing availability
+    await crud_booking.release_expired_reservations()
+
     showtime = await crud_showtime.get_by_id(showtime_id)
     if not showtime:
         raise NotFoundException("Showtime", str(showtime_id))
 
-    screen_id = showtime.get("screen_id")
-    if not screen_id:
+    theatre_id = showtime.get("theatre_id")
+    if not theatre_id:
         raise NotFoundException("Screen for showtime", str(showtime_id))
 
-    raw_seats = await crud_showtime.get_seat_map(screen_id)
+    raw_seats = await crud_showtime.get_seat_map(theatre_id, showtime_id)
     seats: list[SeatInMap] = []
     rows_seen: set[str] = set()
     max_seat_num = 0
 
     for s in raw_seats:
-        spec_status = _STATUS_MAP.get(s.get("status", "available"), "available")
         rows_seen.add(s["row_label"])
         max_seat_num = max(max_seat_num, s.get("seat_number", 0))
         seats.append(SeatInMap(
@@ -131,12 +132,12 @@ async def get_showtime_seats(showtime_id: int):
             row_label=s["row_label"],
             seat_number=s["seat_number"],
             seat_type=s.get("seat_type") or "standard",
-            status=spec_status,
+            status=s.get("status", "available"),
         ))
 
     return SeatMapResponse(
         showtime_id=showtime_id,
-        theatre_id=screen_id,
+        theatre_id=theatre_id,
         layout=SeatLayout(rows=sorted(rows_seen), seats_per_row=max_seat_num),
         seats=seats,
     )
@@ -159,6 +160,9 @@ async def hold_seats(
         raise AppException(
             f"Cannot hold more than {MAX_SEATS_PER_HOLD} seats per transaction", 400
         )
+
+    # Release any stale holds before checking availability
+    await crud_booking.release_expired_reservations()
 
     # Get base_price from showtime to satisfy RPC requirement
     showtime = await crud_showtime.get_by_id(showtime_id)
@@ -210,15 +214,12 @@ async def release_hold(
     current_user: CurrentUser = Depends(get_current_user),
 ):
     """Release a seat hold manually (e.g., user navigates back)."""
-    try:
-        hold_id = int(body.hold_id)
-    except ValueError:
-        raise AppException("Invalid hold_id", 400)
+    hold_id = body.hold_id  # UUID string
 
     # Verify ownership before releasing
     booking = await crud_booking.get_booking_by_id(hold_id)
     if not booking:
-        raise NotFoundException("Hold", body.hold_id)
+        raise NotFoundException("Hold", hold_id)
     if str(booking.get("user_id")) != current_user.user_id and not current_user.is_admin:
         raise AppException("Not authorised to release this hold", 403)
 
@@ -236,16 +237,11 @@ async def get_hold_status(
     current_user: CurrentUser = Depends(get_current_user),
 ):
     """Check hold expiry status (for countdown timer on frontend)."""
-    try:
-        hold_id_int = int(hold_id)
-    except ValueError:
-        raise AppException("Invalid hold_id", 400)
-
-    booking = await crud_booking.get_booking_by_id(hold_id_int)
+    booking = await crud_booking.get_booking_by_id(hold_id)
     if not booking:
         return HoldStatusResponse(hold_id=hold_id, is_active=False, expires_in_seconds=0)
 
-    if booking.get("status") != "pending":
+    if booking.get("booking_status") != "pending":
         return HoldStatusResponse(hold_id=hold_id, is_active=False, expires_in_seconds=0)
 
     deadline_raw = booking.get("payment_deadline")

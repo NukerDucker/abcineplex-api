@@ -68,11 +68,18 @@ async def get_admin_dashboard(current_user: CurrentUser = Depends(get_admin_user
 
 # ========== Movie Management ==========
 
-@router.get("/movies")
+@router.get("/movies", response_model=List[Movie])
 async def list_admin_movies():
     """List all movies (all statuses)"""
-    # TODO: Fetch from CRUD with all statuses
-    return []
+    try:
+        rows, _ = await crud_movie.get_multi(page=1, limit=500)
+        return rows
+    except Exception as e:
+        logger.error(f"Error fetching admin movie list: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to fetch movies"
+        )
 
 
 @router.post("/movies", response_model=Movie, status_code=201)
@@ -159,7 +166,7 @@ async def list_admin_bookings(
 
 @router.patch("/bookings/{booking_id}")
 async def update_admin_booking(
-    booking_id: UUID,
+    booking_id: str,
     new_showtime_id: Optional[int] = Query(None),
     new_seat_ids: Optional[List[int]] = Query(None),
     admin_note: Optional[str] = Query(None)

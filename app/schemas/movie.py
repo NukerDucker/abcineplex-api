@@ -9,7 +9,7 @@ class MovieCreate(BaseModel):
     title: str
     release_date: date
     imdb_score: Optional[float] = None
-    rate: str
+    content_rating: str
     runtime_minutes: int
     duration_minutes: int
     director: Optional[str] = None
@@ -23,7 +23,6 @@ class MovieCreate(BaseModel):
     tag_event: Optional[str] = None
     release_status: str = "upcoming"
     genre: Optional[str] = None
-    rating_tmdb: float
     credits_duration_minutes: int
 
 class MovieUpdate(BaseModel):
@@ -68,19 +67,7 @@ class MovieSummary(BaseModel):
     content_rating: Optional[str] = None
     audio_languages: Optional[List[str]] = None
     subtitle_languages: Optional[List[str]] = None
-    status: Optional[str] = None
-
-    @model_validator(mode="before")
-    @classmethod
-    def _map(cls, data: Any) -> Any:
-        if not isinstance(data, dict):
-            return data
-        out = dict(data)
-        out.setdefault("runtime_minutes", data.get("duration_minutes", 0))
-        out.setdefault("rating_tmdb", data.get("imdb_score"))
-        out.setdefault("status", data.get("release_status"))
-        out.setdefault("genre", data.get("genre"))
-        return out
+    release_status: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -92,6 +79,7 @@ class MovieDetail(BaseModel):
     title: str
     synopsis: Optional[str] = None
     genre: Optional[str] = None
+    duration_minutes: int = 0
     runtime_minutes: int = 0
     trailer_url: Optional[str] = None
     poster_url: Optional[str] = None
@@ -99,29 +87,15 @@ class MovieDetail(BaseModel):
     starring: Optional[List[str]] = None
     director: Optional[str] = None
     release_date: Optional[date] = None
-    rating_tmdb: Optional[float] = None
+    imdb_score: Optional[float] = None
     rating_count: Optional[int] = None
     content_rating: Optional[str] = None
     audio_languages: Optional[List[str]] = None
     subtitle_languages: Optional[List[str]] = None
     credits_duration_minutes: int = 5
-    status: Optional[str] = None
+    release_status: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
-
-    @model_validator(mode="before")
-    @classmethod
-    def _map(cls, data: Any) -> Any:
-        if not isinstance(data, dict):
-            return data
-        out = dict(data)
-        out.setdefault("runtime_minutes", data.get("duration_minutes", 0))
-        out.setdefault("rating_tmdb", data.get("imdb_score"))
-        out.setdefault("status", data.get("release_status"))
-        out.setdefault("starring", data.get("starring", []))
-        out.setdefault("genre", _genre_str(data.get("genre")))
-        out.setdefault("credits_duration_minutes", 5)
-        return out
 
     class Config:
         from_attributes = True

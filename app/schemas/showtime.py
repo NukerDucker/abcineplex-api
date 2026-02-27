@@ -7,7 +7,7 @@ from typing import Optional, List
 
 class ShowtimeCreate(BaseModel):
     movie_id: int
-    screen_id: int = Field(..., description="Screen/theatre ID")
+    theatre_id: int = Field(..., description="Screen/theatre ID")
     start_time: datetime
     base_price: float = Field(..., ge=0)
     # Extended spec fields (optional — only stored if DB column exists)
@@ -20,7 +20,7 @@ class ShowtimeCreate(BaseModel):
 
 class ShowtimeUpdate(BaseModel):
     movie_id: Optional[int] = None
-    screen_id: Optional[int] = None
+    theatre_id: Optional[int] = None
     start_time: Optional[datetime] = None
     base_price: Optional[float] = Field(None, ge=0)
     language: Optional[str] = None
@@ -34,7 +34,7 @@ class Showtime(BaseModel):
     """Raw DB row — used by admin endpoints."""
     id: int
     movie_id: int
-    screen_id: int
+    theatre_id: int
     start_time: Optional[datetime] = None
     base_price: float = 0.0
     language: Optional[str] = None

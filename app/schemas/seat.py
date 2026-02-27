@@ -16,7 +16,7 @@ class SeatDetail(SeatBase):
     """Detailed seat information"""
     seat_id: int
     status: str  # available, reserved, sold, maintenance
-    screen_id: int
+    theatre_id: int
     price: Optional[float] = None
 
 

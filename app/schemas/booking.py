@@ -1,178 +1,103 @@
-from pydantic import BaseModel, Field, UUID4
+from pydantic import BaseModel, Field
 from datetime import datetime
-from typing import List, Optional
+from typing import Any, List, Optional
 from enum import Enum
-from uuid import UUID
 
 
 class BookingStatus(str, Enum):
-    PENDING = "pending"
+    PENDING   = "pending"
     CONFIRMED = "confirmed"
     CANCELLED = "cancelled"
-    CHANGED = "changed"  # Self-service showtime change
-    EXPIRED = "expired"  # Internal status: hold expired
+    CHANGED   = "changed"
 
 
-class SeatStatus(str, Enum):
-    AVAILABLE = "available"
-    RESERVED = "reserved"
-    SOLD = "sold"
-    MAINTENANCE = "maintenance"
+# ── Request schemas ───────────────────────────────────────────
 
-
-# ===== Seat Schemas =====
-class SeatBase(BaseModel):
-    row_label: str = Field(..., description="Row label (e.g., A, B, C)")
-    seat_number: int = Field(..., gt=0, description="Seat number")
-
-
-class SeatInfo(SeatBase):
-    seat_id: int = Field(..., description="Seat ID")
-    status: SeatStatus
-    screen_id: int
-
-
-class AvailableSeat(BaseModel):
-    seat_id: int
-    row_label: str
-    seat_number: int
-    status: str
-
-
-# ===== Booking Request Schemas =====
 class ReserveSeatRequest(BaseModel):
-    """Request to reserve seats (Step 1: User proceeds to payment)"""
-    showtime_id: int = Field(..., description="Showtime ID")
-    seat_ids: List[int] = Field(..., min_length=1, max_length=10, description="List of seat IDs to reserve")
-    price_per_seat: float = Field(default=15.00, gt=0, description="Price per seat in USD")
-
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "showtime_id": 1,
-                "seat_ids": [1, 2, 3],
-                "price_per_seat": 15.00
-            }
-        }
-
-
-class ReserveSeatResponse(BaseModel):
-    """Response after reserving seats"""
-    success: bool
-    booking_id: Optional[int] = None
-    payment_deadline: Optional[datetime] = None
-    total_amount: Optional[float] = None
-    error: Optional[str] = None
-    unavailable_seats: Optional[List[int]] = None
+    """Sent when the user proceeds from seat selection to payment."""
+    showtime_id:     int
+    seat_ids:        List[int] = Field(..., min_length=1, max_length=8)
+    price_per_seat:  float
+    ticket_type:     str = "normal"   # "normal" | "student"
 
 
 class ConfirmPaymentRequest(BaseModel):
-    """Request to confirm payment (Step 2: Payment successful)"""
-    booking_id: int = Field(..., description="Booking ID")
-    payment_intent_id: Optional[str] = Field(None, description="Payment gateway transaction ID")
-
-
-class ConfirmPaymentResponse(BaseModel):
-    """Response after confirming payment"""
-    success: bool
-    message: str
-    booking_id: Optional[int] = None
-    tickets: Optional[List[dict]] = None
-
-
-class CancelBookingRequest(BaseModel):
-    """Request to cancel a booking"""
-    booking_id: int
-
-
-class CancelBookingResponse(BaseModel):
-    """Response after canceling booking"""
-    success: bool
-    message: str
-
-
-# ===== Booking Models =====
-class BookingBase(BaseModel):
-    showtime_id: int
-    total_amount: float
-
-
-class BookingCreate(BookingBase):
-    user_id: UUID
-    status: BookingStatus = BookingStatus.PENDING
-
-
-class BookingUpdate(BaseModel):
-    status: Optional[BookingStatus] = None
+    """Sent to finalize a booking after mock payment succeeds."""
+    booking_id:       str             # UUID string
     payment_intent_id: Optional[str] = None
 
 
-class BookingInDB(BookingBase):
-    id: int
-    user_id: UUID
-    status: BookingStatus
-    payment_deadline: datetime
-    created_at: datetime
-    updated_at: datetime
+class CancelBookingRequest(BaseModel):
+    booking_id: str                   # UUID string
 
-    class Config:
-        from_attributes = True
 
+# ── Response schemas ──────────────────────────────────────────
+
+class ReserveSeatResponse(BaseModel):
+    success:          bool
+    booking_id:       Optional[str]   = None   # UUID
+    payment_deadline: Optional[datetime] = None
+    total_amount:     Optional[float] = None
+    error:            Optional[str]   = None
+    unavailable_seats: Optional[List[int]] = None
+
+
+class ConfirmPaymentResponse(BaseModel):
+    success:    bool
+    message:    str
+    booking_id: Optional[str]        = None
+    tickets:    Optional[List[dict]] = None
+
+
+class CancelBookingResponse(BaseModel):
+    success: bool
+    message: str
+
+
+# ── Booking detail (returned by GET /bookings/:id) ────────────
 
 class BookingDetail(BaseModel):
-    """Detailed booking information with seats"""
-    booking_id: int
-    user_id: UUID
-    booking_status: str
-    total_amount: float
+    """Full booking info including seats and QR codes."""
+    booking_id:       Any             # UUID — using Any so Pydantic accepts both str and UUID
+    user_id:          Any             # UUID
+    booking_status:   str
+    ticket_type:      Optional[str]   = None
+    num_tickets:      Optional[int]   = None
+    total_amount:     float
     payment_deadline: datetime
-    created_at: datetime
-    showtime_id: int
-    screen_name: str
-    seats: List[str]  # e.g., ["A1", "A2", "A3"]
-    movie_title: Optional[str] = None
-    poster_url: Optional[str] = None
-    showtime_start: Optional[str] = None
-    qr_code_data: Optional[str] = None  # Comma-joined QR slugs from tickets
-    tickets: Optional[List[dict]] = None  # Full ticket objects with QR codes
+    created_at:       datetime
+    showtime_id:      int
+    screen_name:      str
+    seats:            List[str]       # ["A1", "B3", ...]
+    movie_title:      Optional[str]   = None
+    poster_url:       Optional[str]   = None
+    showtime_start:   Optional[Any]   = None
+    qr_code_data:     Optional[str]   = None
+    tickets:          Optional[List[dict]] = None
+
+    model_config = {"from_attributes": True}
 
 
-class TicketInfo(BaseModel):
-    """Individual ticket information"""
-    ticket_id: int
-    booking_id: int
-    seat_id: int
-    row_label: str
-    seat_number: int
+# ── Misc ──────────────────────────────────────────────────────
 
-class BookingListResponse(BaseModel):
-    """List of bookings"""
-    bookings: List[BookingDetail]
-    total_count: int
-
-
-# ===== Screen Schemas =====
-class ScreenInfo(BaseModel):
-    screen_id: int
-    name: str
-    size: str
-    total_seats: int
-
-
-class ScreenStatistics(BaseModel):
-    """Screen occupancy statistics"""
-    screen_id: int
-    screen_name: str
-    total_seats: int
-    available_seats: int
-    reserved_seats: int
-    sold_seats: int
-    maintenance_seats: int
-
-
-# ===== Expiry Worker Response =====
 class ExpiryWorkerResponse(BaseModel):
-    """Response from expiry worker"""
     released_count: int
-    booking_ids: Optional[List[str]] = None
-    timestamp: datetime = Field(default_factory=datetime.now)
+    booking_ids:    Optional[List[str]] = None
+    timestamp:      datetime = Field(default_factory=datetime.now)
+
+
+# ── Legacy screen schemas (used by /bookings/screens endpoints) ─
+
+class AvailableSeat(BaseModel):
+    seat_id:     int
+    row_label:   str
+    seat_number: int
+    status:      str
+
+
+class ScreenInfo(BaseModel):
+    theatre_id:  int
+    name:        str
+    total_seats: int
+
+

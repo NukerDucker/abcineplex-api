@@ -2,12 +2,11 @@
 from pydantic import BaseModel, Field
 from typing import Optional
 from datetime import datetime
-from uuid import UUID
 
 
 class PaymentInitiateRequest(BaseModel):
     """Request to initiate a payment for a booking"""
-    booking_id: UUID = Field(..., description="Booking ID (UUID)")
+    booking_id: str = Field(..., description="Booking ID")
     payment_method: str = Field(
         default="mock_card",
         pattern="^(mock_card|mock_qr|mock_cash)$",
@@ -39,7 +38,7 @@ class PaymentConfirmResponse(BaseModel):
     """Response after confirming a payment"""
     payment_id: str = Field(..., description="Payment ID")
     status: str = Field(..., description="Payment status: success | failed")
-    booking_id: UUID = Field(..., description="Associated booking ID")
+    booking_id: str = Field(..., description="Associated booking ID")
     booking_status: Optional[str] = Field(None, description="Updated booking status")
     points_earned: Optional[int] = Field(None, description="Reward points earned")
     message: Optional[str] = Field(None, description="Status message")
@@ -48,7 +47,7 @@ class PaymentConfirmResponse(BaseModel):
 class PaymentStatusResponse(BaseModel):
     """Response with payment status details"""
     payment_id: str = Field(..., description="Payment ID")
-    booking_id: UUID = Field(..., description="Associated booking ID")
+    booking_id: str = Field(..., description="Associated booking ID")
     status: str = Field(..., description="Payment status")
     amount: float = Field(..., description="Payment amount")
     payment_method: str = Field(..., description="Payment method")

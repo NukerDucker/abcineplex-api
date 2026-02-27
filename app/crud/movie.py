@@ -53,29 +53,18 @@ class CRUDMovie:
         self,
         page: int = 1,
         limit: int = 20,
-        status: Optional[str] = None,
-        genre: Optional[str] = None,
-        search: Optional[str] = None,
+        release_status: Optional[str] = None,
     ) -> tuple[List[dict], int]:
-        """Return (rows, total_count) with optional status/genre/search filters."""
         offset = (page - 1) * limit
 
         def _fetch():
             query = self.client.table("movies").select("*", count="exact")
-            if status and status != "all":
-                query = query.eq("release_status", status)
-            # genre filter against array column
-            if genre:
-                query = query.contains("genres", [genre])
-            # title search (case-insensitive)
-            if search:
-                query = query.ilike("title", f"%{search}%")
+            if release_status:
+                query = query.eq("release_status", release_status)
             return query.range(offset, offset + limit - 1).execute()
 
         response = await asyncio.to_thread(_fetch)
-        rows = response.data or []
-        total = response.count or len(rows)
-        return rows, total
+        return response.data or [], response.count or 0
 
     async def get_showtimes_for_movie(
         self,
@@ -90,7 +79,7 @@ class CRUDMovie:
         try:
             response = await asyncio.to_thread(
                 lambda: self.client.table("showtimes")
-                    .select("*, screens(name, total_seats)")
+                    .select("*, theatres(name, total_seats)")
                     .eq("movie_id", movie_id)
                     .gte("start_time", from_date)
                     .lte("start_time", to_date)

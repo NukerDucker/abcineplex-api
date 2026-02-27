@@ -41,7 +41,7 @@ class CRUDReview:
         def validate_and_create():
             # Query booking with its showtime info
             booking_res = self.client.table('bookings') \
-                .select('id, user_id, status, showtime_id') \
+                .select('id, user_id, booking_status, showtime_id') \
                 .eq('id', booking_id) \
                 .eq('user_id', user_id) \
                 .maybe_single() \
@@ -51,7 +51,7 @@ class CRUDReview:
                 raise ValueError("Booking not found or does not belong to you")
 
             booking = booking_res.data
-            if booking.get('status') != 'confirmed':
+            if booking.get('booking_status') != 'confirmed':
                 raise ValueError("You can only review movies from confirmed bookings")
 
             # Verify the showtime's movie matches the review's movie_id

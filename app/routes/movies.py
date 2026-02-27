@@ -36,16 +36,16 @@ def _build_showtime_card(
         except ValueError:
             pass
 
-    screen = st.get("screens") or {}
+    theatre_id = st.get("theatre_id")
     return ShowtimeCard(
         showtime_id=st["id"],
-        theatre_name=screen.get("name"),
+        theatre_name=f"Theatre {theatre_id}" if theatre_id else None,
         start_time=start_time_str,
         end_time=end_time_str,
         format=st.get("format"),
         language=st.get("language"),
         available_seats=st.get("available_seats"),
-        total_seats=screen.get("total_seats"),
+        total_seats=st.get("total_seats"),
         ticket_price_normal=st.get("ticket_price_normal") or st.get("base_price"),
         ticket_price_student=st.get("ticket_price_student"),
         ticket_price_member=st.get("ticket_price_member"),
@@ -58,20 +58,18 @@ def _build_showtime_card(
 
 @router.get("", response_model=MovieListResponse)
 async def list_movies(
-    status: Optional[str] = Query("now_showing", description="now_showing | upcoming | all"),
-    genre: Optional[str] = Query(None, description="Filter by genre"),
-    search: Optional[str] = Query(None, description="Search by title"),
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
+    status: Optional[str] = Query(None, alias="release_status")
 ):
-    """Browse movies with optional status, genre, and title-search filters."""
+    """Browse movies with optional release_, genre, and title-search filters."""
     rows, total = await crud_movie.get_multi(
-        page=page, limit=limit, status=status, genre=genre, search=search
+        page=page, limit=limit, release_status=status
     )
     return MovieListResponse(
-        movies=[MovieSummary(**r) for r in rows],
+        movies=rows,  # FastAPI/Pydantic will automatically convert these dicts to MovieSummary objects
         total=total,
-        page=page,
+        page=page
     )
 
 

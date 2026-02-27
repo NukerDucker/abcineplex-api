@@ -14,9 +14,9 @@ async def add_test_showtimes():
         screens = await asyncio.to_thread(
             lambda: supabase_admin.table("screens").select("id").execute()
         )
-        screen_ids = [s["id"] for s in (screens.data or [])]
+        theatre_ids = [s["id"] for s in (screens.data or [])]
 
-        if not screen_ids:
+        if not theatre_ids:
             print("❌ No screens found in database. Please create a screen first.")
             print("\nTo create a screen, run:")
             print("""
@@ -27,8 +27,8 @@ supabase_admin.table("screens").insert({
             """)
             return
 
-        screen_id = screen_ids[0]
-        print(f"✅ Using screen ID: {screen_id}")
+        theatre_id = theatre_ids[0]
+        print(f"✅ Using screen ID: {theatre_id}")
     except Exception as e:
         print(f"❌ Error fetching screens: {e}")
         return
@@ -49,7 +49,7 @@ supabase_admin.table("screens").insert({
                 "movie_id": movie_id,
                 "start_time": showtime.isoformat(),
                 "base_price": base_price,
-                "screen_id": screen_id,
+                "theatre_id": theatre_id,
             })
 
     try:
