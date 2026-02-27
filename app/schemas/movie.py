@@ -24,8 +24,6 @@ class MovieCreate(BaseModel):
     release_status: str = "upcoming"
     genres: Optional[List[str]] = []
     rating_tmdb: float
-    imdb_score: float
-    release_date: str
     credits_duration_minutes: int
 
 class MovieUpdate(BaseModel):
@@ -60,9 +58,10 @@ class MovieSummary(BaseModel):
     """Lightweight row for GET /movies list."""
     id: int
     title: str
-    genre: Optional[str] = None
+    genre: Optional[List[str]] = None
     runtime_minutes: int = 0
     rating_tmdb: Optional[float] = None
+    starring: Optional[List[str]] = None
     poster_url: Optional[str] = None
     banner_url: Optional[str] = None
     release_date: Optional[date] = None
@@ -97,7 +96,7 @@ class MovieDetail(BaseModel):
     trailer_url: Optional[str] = None
     poster_url: Optional[str] = None
     banner_url: Optional[str] = None
-    cast_json: Optional[Any] = None
+    starring: Optional[List[str]] = None
     director: Optional[str] = None
     release_date: Optional[date] = None
     rating_tmdb: Optional[float] = None
@@ -119,7 +118,7 @@ class MovieDetail(BaseModel):
         out.setdefault("runtime_minutes", data.get("duration_minutes", 0))
         out.setdefault("rating_tmdb", data.get("imdb_score"))
         out.setdefault("status", data.get("release_status"))
-        out.setdefault("cast_json", data.get("starring", []))
+        out.setdefault("starring", data.get("starring", []))
         out.setdefault("genre", _genre_str(data.get("genres")))
         out.setdefault("credits_duration_minutes", 5)
         return out
