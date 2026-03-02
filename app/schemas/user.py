@@ -10,8 +10,7 @@ class UserProfile(BaseModel):
     id: str
     email: str
     user_name: str
-    first_name: str
-    last_name: str
+    full_name: str
     is_admin: bool = False
     phone: Optional[str] = None
     date_of_birth: Optional[date] = None
@@ -19,7 +18,6 @@ class UserProfile(BaseModel):
     student_id_verified: bool = False
     membership_tier: str = "free"
     reward_points: int = 0
-    attendance_streak: int = 0
     has_password: bool = True  # False for OAuth users who haven't set a password yet
 
     @model_validator(mode="before")
@@ -33,15 +31,8 @@ class UserProfile(BaseModel):
         # 1. Map ID (user_id -> id)
         out.setdefault("id", data.get("user_id", ""))
 
-        # 2. Map Name (full_name -> first/last)
+        # 2. Normalize full_name
         full_name = (data.get("full_name") or "").strip()
-        if full_name:
-            parts = full_name.split(" ", 1)
-            out.setdefault("first_name", parts[0])
-            out.setdefault("last_name", parts[1] if len(parts) > 1 else "")
-        else:
-            out.setdefault("first_name", "")
-            out.setdefault("last_name", "")
 
         # 3. user_name fallback — Google OAuth users won't have one until they update it
         if not data.get("user_name"):
@@ -68,8 +59,7 @@ class UserUpdate(BaseModel):
     Fields a user can update on their own profile.
     NOTE: is_admin is EXCLUDED here for security.
     """
-    first_name: Optional[str] = None
-    last_name: Optional[str] = None
+    full_name: Optional[str] = None
     phone: Optional[str] = None
     date_of_birth: Optional[date] = None
 

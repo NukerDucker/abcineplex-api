@@ -38,23 +38,12 @@ async def update_me(
 ):
     """
     Update current user's profile.
-    Maps first_name/last_name to the DB 'full_name' column.
     """
     data: dict = {}
 
-    # Handle Name Mapping
-    if body.first_name is not None or body.last_name is not None:
-        current = await crud_user.get_by_id(current_user.user_id)
-        existing = (current.get("full_name") or "") if current else ""
-        parts = existing.split(" ", 1)
-
-        # Determine values, falling back to existing DB state if one side is missing in request
-        existing_first = parts[0] if len(parts) > 0 else ""
-        existing_last = parts[1] if len(parts) > 1 else ""
-
-        first = body.first_name if body.first_name is not None else existing_first
-        last = body.last_name if body.last_name is not None else existing_last
-        data["full_name"] = f"{first} {last}".strip()
+    # Handle Name
+    if body.full_name is not None:
+        data["full_name"] = body.full_name.strip()
 
     # Direct field updates
     if body.phone is not None:

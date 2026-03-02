@@ -36,9 +36,6 @@ _PROFILE_SELECT = (
 def _build_token_user(user_id: str, email: str, profile: dict) -> TokenUser:
     """Build a TokenUser from a raw DB profile dict."""
     full_name = str(profile.get("full_name", "") or "")
-    parts = full_name.split(" ", 1)
-    first_name = parts[0] if parts and parts[0] else ""
-    last_name = parts[1] if len(parts) > 1 and parts[1] else ""
 
     email_prefix = email.split("@")[0] if "@" in email else "user"
     user_name = str(profile.get("user_name", "") or email_prefix)
@@ -50,8 +47,7 @@ def _build_token_user(user_id: str, email: str, profile: dict) -> TokenUser:
         id=user_id,
         email=email,
         user_name=user_name,
-        first_name=first_name,
-        last_name=last_name,
+        full_name=full_name,
         is_admin=bool(profile.get("is_admin", False)),
         phone=phone,
         date_of_birth=date_of_birth,
@@ -100,7 +96,7 @@ async def register(body: RegisterRequest):
     4. If a session was returned (no email confirmation required), auto-login the user
     """
     logger.info(f"[auth] register: email={body.email}")
-    full_name = f"{body.first_name} {body.last_name}".strip()
+    full_name = body.full_name.strip()
 
     # 1. Create auth user — trigger will insert into public.users
     try:

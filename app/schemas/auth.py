@@ -8,8 +8,7 @@ _PASSWORD_MIN_MSG = "Password must be at least 8 characters"
 class RegisterRequest(BaseModel):
     email: EmailStr
     password: str
-    first_name: str
-    last_name: str
+    full_name: str
     phone: Optional[str] = None
     date_of_birth: Optional[date] = None
 
@@ -56,8 +55,7 @@ class TokenUser(BaseModel):
     id: str
     email: str
     user_name: str
-    first_name: str
-    last_name: str
+    full_name: str
     is_admin: bool
     phone: Optional[str] = None
     date_of_birth: Optional[str] = None
