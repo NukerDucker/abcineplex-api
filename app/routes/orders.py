@@ -5,12 +5,16 @@ Handles snack order management endpoints
 from fastapi import APIRouter, Depends
 from typing import List
 from uuid import UUID
+import asyncio
+import logging
 
 from app.crud.order import CRUDOrder
 from app.schemas.order import OrderCreate, OrderResponse, OrderStatus
 from app.core.supabase import supabase_admin
 from app.core.security import get_current_user, CurrentUser
 from app.core.exceptions import NotFoundException, UnauthorizedException
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/orders", tags=["orders"])
 crud_order = CRUDOrder(supabase_admin)
@@ -22,7 +26,31 @@ async def create_order(
     current_user: CurrentUser = Depends(get_current_user),
 ):
     """Create new snack order"""
-    return await crud_order.create_order(UUID(current_user.user_id), order)
+    result = await crud_order.create_order(UUID(current_user.user_id), order)
+
+    # EP10-UC002: Award loyalty points for snack purchase (1 pt per 10 THB)
+    try:
+        total = float(result.get("total_amount", 0) if isinstance(result, dict) else result.total_amount)
+        points_earned = max(1, int(total / 10))
+        user_res = await asyncio.to_thread(
+            lambda: supabase_admin.table("users")
+                .select("loyalty_points")
+                .eq("id", current_user.user_id)
+                .maybe_single()
+                .execute()
+        )
+        if user_res.data:
+            new_pts = (user_res.data.get("loyalty_points") or 0) + points_earned
+            await asyncio.to_thread(
+                lambda: supabase_admin.table("users")
+                    .update({"loyalty_points": new_pts})
+                    .eq("id", current_user.user_id)
+                    .execute()
+            )
+    except Exception as e:
+        logger.warning(f"Could not award snack order points: {e}")
+
+    return result
 
 
 @router.get("/", response_model=List[OrderResponse])
