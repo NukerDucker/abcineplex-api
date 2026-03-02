@@ -11,6 +11,7 @@ class RegisterRequest(BaseModel):
     full_name: str
     phone: Optional[str] = None
     date_of_birth: Optional[date] = None
+    referral_code: Optional[str] = None      # EP-20: invited-user referral
 
     @field_validator("password")
     @classmethod

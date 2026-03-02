@@ -32,6 +32,11 @@ class PaymentConfirmRequest(BaseModel):
         default=True,
         description="Mock result: True = success, False = failure",
     )
+    points_redeemed: int = Field(
+        default=0,
+        ge=0,
+        description="Loyalty points the user chose to redeem as a discount",
+    )
 
 
 class PaymentConfirmResponse(BaseModel):

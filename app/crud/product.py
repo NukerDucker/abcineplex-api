@@ -51,7 +51,7 @@ class CRUDProduct:
             if category_id:
                 query = query.eq("category_id", str(category_id))
             if in_stock is not None:
-                query = query.eq("in_stock", in_stock)
+                query = query.eq("is_active", in_stock)
             return query.range(skip, skip + limit - 1).execute()
 
         response = await asyncio.to_thread(_fetch)
@@ -88,14 +88,14 @@ class CRUDProduct:
         """Create new product category"""
         data = category.model_dump(mode='json')
         response = await asyncio.to_thread(
-            lambda: self.client.table("categories").insert(data).execute()
+            lambda: self.client.table("product_categories").insert(data).execute()
         )
         return response.data[0]
 
     async def get_category(self, category_id: UUID) -> Optional[dict]:
         """Get category by ID"""
         response = await asyncio.to_thread(
-            lambda: self.client.table("categories")
+            lambda: self.client.table("product_categories")
                 .select("*")
                 .eq("id", str(category_id))
                 .maybe_single()
@@ -106,7 +106,7 @@ class CRUDProduct:
     async def get_categories(self, skip: int = 0, limit: int = 20) -> List[dict]:
         """Get all active categories ordered by display_order"""
         response = await asyncio.to_thread(
-            lambda: self.client.table("categories")
+            lambda: self.client.table("product_categories")
                 .select("*")
                 .eq("is_active", True)
                 .order("display_order", desc=False)
@@ -121,7 +121,7 @@ class CRUDProduct:
             return await self.get_category(category_id)
 
         response = await asyncio.to_thread(
-            lambda: self.client.table("categories")
+            lambda: self.client.table("product_categories")
                 .update(category_in)
                 .eq("id", str(category_id))
                 .select()
@@ -133,7 +133,7 @@ class CRUDProduct:
     async def delete_category(self, category_id: UUID) -> bool:
         """Soft delete category by setting is_active to False"""
         response = await asyncio.to_thread(
-            lambda: self.client.table("categories")
+            lambda: self.client.table("product_categories")
                 .update({"is_active": False})
                 .eq("id", str(category_id))
                 .execute()

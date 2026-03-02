@@ -23,7 +23,8 @@ class ProductBase(BaseModel):
     price: Decimal = Field(..., max_digits=10, decimal_places=2)
     description: Optional[str] = None
     image_url: Optional[HttpUrl] = None
-    in_stock: bool = True
+    is_active: bool = True
+    stock_quantity: int = 0
 
 class ProductCreate(ProductBase):
     pass
@@ -34,7 +35,8 @@ class ProductUpdate(BaseModel):
     price: Optional[Decimal] = Field(None, max_digits=10, decimal_places=2)
     description: Optional[str] = None
     image_url: Optional[HttpUrl] = None
-    in_stock: Optional[bool] = None
+    is_active: Optional[bool] = None
+    stock_quantity: Optional[int] = None
 
 class Product(ProductBase):
     id: UUID

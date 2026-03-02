@@ -144,7 +144,10 @@ async def confirm_payment(
                 .execute()
         )
         if user_res.data:
-            new_pts = (user_res.data.get("loyalty_points") or 0) + points_earned
+            current_pts = (user_res.data.get("loyalty_points") or 0)
+            # EP-25: Deduct redeemed points, then add earned points
+            redeemed = min(request.points_redeemed, current_pts)
+            new_pts = current_pts - redeemed + points_earned
             new_streak = (user_res.data.get("attendance_streak") or 0) + 1
             await asyncio.to_thread(
                 lambda: supabase_admin.table("users")

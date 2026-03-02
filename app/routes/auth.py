@@ -156,6 +156,38 @@ async def register(body: RegisterRequest):
     profile = await _fetch_profile(user_id)
     email = str(auth_res.user.email or body.email)
     token_user = _build_token_user(user_id, email, profile)
+
+    # EP-20: Award referral points to both referrer and new user
+    if body.referral_code:
+        try:
+            ref_res = await asyncio.to_thread(
+                lambda: supabase_admin.table("users")
+                    .select("id, loyalty_points")
+                    .eq("user_name", body.referral_code)
+                    .maybe_single()
+                    .execute()
+            )
+            if ref_res.data and ref_res.data["id"] != user_id:
+                referrer_id = ref_res.data["id"]
+                new_referrer_pts = (ref_res.data.get("loyalty_points") or 0) + 50
+                await asyncio.to_thread(
+                    lambda: supabase_admin.table("users")
+                        .update({"loyalty_points": new_referrer_pts})
+                        .eq("id", referrer_id)
+                        .execute()
+                )
+                # Also award 50 pts to the newly registered user
+                new_user_pts = int(profile.get("loyalty_points") or 0) + 50
+                await asyncio.to_thread(
+                    lambda: supabase_admin.table("users")
+                        .update({"loyalty_points": new_user_pts})
+                        .eq("id", user_id)
+                        .execute()
+                )
+                logger.info(f"[auth] referral: awarded 50 pts to referrer {referrer_id} and new user {user_id}")
+        except Exception as e:
+            logger.warning(f"[auth] referral points award failed: {e}")
+
     logger.info(f"[auth] register: auto-login success for user_id={user_id}")
 
     return RegisterResponse(
