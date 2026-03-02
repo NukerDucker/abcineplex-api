@@ -29,7 +29,7 @@ router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 _PROFILE_SELECT = (
     "id, full_name, user_name, loyalty_points, is_admin, "
     "phone, date_of_birth, is_student, student_id_verified, "
-    "attendance_streak, password_hash"
+    "password_hash"
 )
 
 
@@ -55,7 +55,6 @@ def _build_token_user(user_id: str, email: str, profile: dict) -> TokenUser:
         student_id_verified=bool(profile.get("student_id_verified", False)),
         membership_tier="free",
         reward_points=int(profile.get("loyalty_points", 0) or 0),
-        attendance_streak=int(profile.get("attendance_streak", 0) or 0),
         has_password=bool(profile.get("password_hash")),
     )
 

@@ -18,6 +18,7 @@ class UserProfile(BaseModel):
     student_id_verified: bool = False
     membership_tier: str = "free"
     reward_points: int = 0
+    attendance_streak: int = 0
     has_password: bool = True  # False for OAuth users who haven't set a password yet
 
     @model_validator(mode="before")
@@ -41,6 +42,9 @@ class UserProfile(BaseModel):
 
         # 4. Map Points (loyalty_points -> reward_points)
         out.setdefault("reward_points", data.get("loyalty_points", 0))
+
+        # 4b. Map streak from DB column
+        out.setdefault("attendance_streak", data.get("attendance_streak", 0))
 
         # 5. Map Admin Status (explicitly ensure it's captured from DB)
         out.setdefault("is_admin", data.get("is_admin", False))

@@ -29,6 +29,7 @@ class HoldRequest(BaseModel):
         max_length=MAX_SEATS_PER_HOLD,
         description="Seat IDs to place a 5-minute hold on",
     )
+    ticket_type: str = Field("normal", description="Ticket type: 'normal' or 'student'")
 
 
 class HoldResponse(BaseModel):

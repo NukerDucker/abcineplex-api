@@ -31,6 +31,11 @@ class CancelBookingRequest(BaseModel):
     booking_id: str                   # UUID string
 
 
+class ChangeShowtimeRequest(BaseModel):
+    new_showtime_id: int
+    new_seat_ids: List[int] = Field(default_factory=list, description="Optional new seat IDs; empty to keep current seats")
+
+
 # ── Response schemas ──────────────────────────────────────────
 
 class ReserveSeatResponse(BaseModel):
@@ -99,5 +104,3 @@ class ScreenInfo(BaseModel):
     theatre_id:  int
     name:        str
     total_seats: int
-
-

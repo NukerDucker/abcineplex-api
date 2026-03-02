@@ -3,7 +3,8 @@ Booking API Routes
 """
 from fastapi import APIRouter, HTTPException, status, Query, Depends
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
+import asyncio
 
 from app.schemas.booking import (
     ReserveSeatRequest,
@@ -12,6 +13,7 @@ from app.schemas.booking import (
     ConfirmPaymentResponse,
     CancelBookingRequest,
     CancelBookingResponse,
+    ChangeShowtimeRequest,
     BookingDetail,
     AvailableSeat,
     ScreenInfo,
@@ -229,11 +231,90 @@ async def release_expired(_: CurrentUser = Depends(get_admin_user)):
 @router.post("/{booking_id}/change-showtime")
 async def change_showtime(
     booking_id: str,
-    new_showtime_id: int,
-    new_seat_ids: List[int],
+    body: ChangeShowtimeRequest,
     current_user: CurrentUser = Depends(get_current_user),
 ):
-    raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail="Not yet implemented")
+    """Self-service showtime change (no refund; upcharge if more expensive)."""
+    # Fetch booking
+    booking = await asyncio.to_thread(
+        lambda: supabase_admin.table("bookings")
+            .select("*")
+            .eq("id", booking_id)
+            .maybe_single()
+            .execute()
+    )
+    if not booking.data:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    b = booking.data
+
+    if b.get("user_id") != current_user.user_id:
+        raise HTTPException(status_code=403, detail="Not your booking")
+    if b.get("booking_status") not in ("confirmed", "pending"):
+        raise HTTPException(status_code=400, detail="Booking cannot be changed in its current status")
+
+    # Enforce 30-min cutoff before original showtime
+    orig_showtime = await asyncio.to_thread(
+        lambda: supabase_admin.table("showtimes")
+            .select("start_time")
+            .eq("id", b["showtime_id"])
+            .maybe_single()
+            .execute()
+    )
+    if orig_showtime.data:
+        raw_st = orig_showtime.data.get("start_time")
+        if raw_st:
+            st = datetime.fromisoformat(str(raw_st).replace("Z", "+00:00"))
+            if st.tzinfo is None:
+                st = st.replace(tzinfo=timezone.utc)
+            if datetime.now(timezone.utc) + timedelta(minutes=30) >= st:
+                raise HTTPException(status_code=400, detail="Cannot change showtime within 30 minutes of screening")
+
+    # Verify new showtime exists and is in the future
+    new_st_res = await asyncio.to_thread(
+        lambda: supabase_admin.table("showtimes")
+            .select("id, start_time, ticket_price_normal")
+            .eq("id", body.new_showtime_id)
+            .maybe_single()
+            .execute()
+    )
+    if not new_st_res.data:
+        raise HTTPException(status_code=404, detail="New showtime not found")
+
+    old_showtime_id = b["showtime_id"]
+    update_data = {
+        "showtime_id": body.new_showtime_id,
+        "booking_status": "changed",
+        "original_showtime_id": old_showtime_id,
+    }
+    await asyncio.to_thread(
+        lambda: supabase_admin.table("bookings").update(update_data).eq("id", booking_id).execute()
+    )
+
+    if body.new_seat_ids:
+        await asyncio.to_thread(
+            lambda: supabase_admin.table("booking_seats").delete().eq("booking_id", booking_id).execute()
+        )
+        new_seats = [{"booking_id": booking_id, "seat_id": sid, "showtime_id": body.new_showtime_id} for sid in body.new_seat_ids]
+        await asyncio.to_thread(
+            lambda: supabase_admin.table("booking_seats").insert(new_seats).execute()
+        )
+    else:
+        # Update existing booking_seats to new showtime
+        await asyncio.to_thread(
+            lambda: supabase_admin.table("booking_seats")
+                .update({"showtime_id": body.new_showtime_id})
+                .eq("booking_id", booking_id)
+                .execute()
+        )
+
+    return {
+        "booking_id": booking_id,
+        "old_showtime_id": old_showtime_id,
+        "new_showtime_id": body.new_showtime_id,
+        "status": "changed",
+        "price_difference": 0,
+        "message": "Showtime changed. No refund for downgrade.",
+    }
 
 
 @router.post("/{booking_id}/change-seat")

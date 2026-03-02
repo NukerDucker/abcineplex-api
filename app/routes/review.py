@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
+import asyncio
 from typing import List, Optional
 from app.schemas.review import (
     ReviewCreate,
@@ -40,7 +41,29 @@ async def create_review(
         review_data["user_id"] = current_user.user_id
         review_data["username"] = current_user.user_name or current_user.email.split("@")[0]
 
-        return await crud_review.create(review_data, user_id=current_user.user_id)
+        result = await crud_review.create(review_data, user_id=current_user.user_id)
+
+        # Award 20 loyalty points for submitting a review (EP08-UC002)
+        try:
+            user_res = await asyncio.to_thread(
+                lambda: supabase_admin.table("users")
+                    .select("loyalty_points")
+                    .eq("id", current_user.user_id)
+                    .maybe_single()
+                    .execute()
+            )
+            if user_res.data:
+                new_pts = (user_res.data.get("loyalty_points") or 0) + 20
+                await asyncio.to_thread(
+                    lambda: supabase_admin.table("users")
+                        .update({"loyalty_points": new_pts})
+                        .eq("id", current_user.user_id)
+                        .execute()
+                )
+        except Exception:
+            pass  # Points award is best-effort; don't fail the review creation
+
+        return result
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 

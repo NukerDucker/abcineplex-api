@@ -5,7 +5,7 @@ from typing import Optional, List
 
 class ReviewBase(BaseModel):
     movie_id: int
-    booking_id: int
+    booking_id: Optional[int] = None
     review_text: str
     rating: float = Field(..., ge=1.0, le=5.0, description="Rating: 1.0 to 5.0")
 
@@ -22,7 +22,7 @@ class ReviewUpdate(BaseModel):
 class ReviewResponse(BaseModel):
     id: int
     movie_id: int
-    booking_id: int
+    booking_id: Optional[int] = None
     user_id: str
     username: str
     review_text: str

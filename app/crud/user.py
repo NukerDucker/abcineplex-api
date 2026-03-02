@@ -12,7 +12,7 @@ class CRUDUser:
     SELECT_COLUMNS = (
         "id, email, user_name, full_name, phone, date_of_birth, "
         "loyalty_points, is_admin, is_active, is_student, "
-        "student_id_verified, attendance_streak, password_hash, "
+        "student_id_verified, password_hash, "
         "created_at, updated_at"
     )
 

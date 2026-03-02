@@ -1,7 +1,7 @@
 from supabase import Client
 from typing import List, Optional, Dict, Any, cast
 from app.schemas.showtime import ShowtimeCreate, ShowtimeUpdate
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import logging
 import asyncio
 
@@ -16,7 +16,25 @@ class CRUDShowtime:
         self.client = supabase_client
 
     async def create(self, showtime: ShowtimeCreate) -> dict:
-        """Create a new showtime"""
+        """Create a new showtime with overlap detection"""
+        new_start: datetime = showtime.start_time
+        window_start = (new_start - timedelta(hours=3)).isoformat()
+        window_end = (new_start + timedelta(hours=3)).isoformat()
+
+        conflict = await asyncio.to_thread(
+            lambda: self.client.table("showtimes")
+                .select("id, start_time")
+                .eq("theatre_id", showtime.theatre_id)
+                .gte("start_time", window_start)
+                .lte("start_time", window_end)
+                .execute()
+        )
+        if conflict.data:
+            conflict_time = conflict.data[0].get("start_time", "?")
+            raise ValueError(
+                f"Showtime conflicts with an existing one at {conflict_time} in the same theatre (within 3-hour window)."
+            )
+
         data = showtime.model_dump(mode='json')
         response = await asyncio.to_thread(
             lambda: self.client.table("showtimes").insert(data).execute()

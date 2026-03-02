@@ -6,6 +6,7 @@ State is stored in-memory (intentional — this is a mock system).
 from fastapi import APIRouter, HTTPException, status, Depends
 from uuid import uuid4
 from datetime import datetime
+import asyncio
 
 from app.crud.booking import CRUDBooking
 from app.core.supabase import supabase_admin
@@ -132,6 +133,27 @@ async def confirm_payment(
 
     # Estimate points earned: 1 pt per 10 baht (rounded)
     points_earned = max(1, int(record["amount"] / 10))
+
+    # EP08-UC001 & EP08-UC003: Persist points + increment attendance streak
+    try:
+        user_res = await asyncio.to_thread(
+            lambda: supabase_admin.table("users")
+                .select("loyalty_points, attendance_streak")
+                .eq("id", current_user.user_id)
+                .maybe_single()
+                .execute()
+        )
+        if user_res.data:
+            new_pts = (user_res.data.get("loyalty_points") or 0) + points_earned
+            new_streak = (user_res.data.get("attendance_streak") or 0) + 1
+            await asyncio.to_thread(
+                lambda: supabase_admin.table("users")
+                    .update({"loyalty_points": new_pts, "attendance_streak": new_streak})
+                    .eq("id", current_user.user_id)
+                    .execute()
+            )
+    except Exception as e:
+        logger.warning(f"Could not update loyalty points/streak: {e}")
 
     logger.info(f"Payment {payment_id} confirmed for booking {booking_id}")
     return PaymentConfirmResponse(

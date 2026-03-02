@@ -33,38 +33,38 @@ class CRUDReview:
         }
 
     async def create(self, review_in: dict, user_id: str) -> dict:
-        """Create new review with booking validation"""
+        """Create new review with optional booking validation"""
         booking_id = review_in.get('booking_id')
         movie_id = review_in.get('movie_id')
 
-        # Validate booking exists and belongs to user
         def validate_and_create():
-            # Query booking with its showtime info
-            booking_res = self.client.table('bookings') \
-                .select('id, user_id, booking_status, showtime_id') \
-                .eq('id', booking_id) \
-                .eq('user_id', user_id) \
-                .maybe_single() \
-                .execute()
+            if booking_id:
+                # Validate booking exists and belongs to user
+                booking_res = self.client.table('bookings') \
+                    .select('id, user_id, booking_status, showtime_id') \
+                    .eq('id', booking_id) \
+                    .eq('user_id', user_id) \
+                    .maybe_single() \
+                    .execute()
 
-            if not booking_res.data:
-                raise ValueError("Booking not found or does not belong to you")
+                if not booking_res.data:
+                    raise ValueError("Booking not found or does not belong to you")
 
-            booking = booking_res.data
-            if booking.get('booking_status') != 'confirmed':
-                raise ValueError("You can only review movies from confirmed bookings")
+                booking = booking_res.data
+                if booking.get('booking_status') != 'confirmed':
+                    raise ValueError("You can only review movies from confirmed bookings")
 
-            # Verify the showtime's movie matches the review's movie_id
-            showtime_res = self.client.table('showtimes') \
-                .select('movie_id') \
-                .eq('id', booking.get('showtime_id')) \
-                .maybe_single() \
-                .execute()
+                # Verify the showtime's movie matches the review's movie_id
+                showtime_res = self.client.table('showtimes') \
+                    .select('movie_id') \
+                    .eq('id', booking.get('showtime_id')) \
+                    .maybe_single() \
+                    .execute()
 
-            if not showtime_res.data or showtime_res.data.get('movie_id') != movie_id:
-                raise ValueError("The movie in your booking does not match the movie being reviewed")
+                if not showtime_res.data or showtime_res.data.get('movie_id') != movie_id:
+                    raise ValueError("The movie in your booking does not match the movie being reviewed")
 
-            # All validations passed, insert review
+            # Insert review
             insert_res = self.client.table("reviews").insert(review_in).execute()
             if not insert_res.data:
                 raise ValueError("Create failed")
@@ -98,6 +98,9 @@ class CRUDReview:
 
     async def add_like(self, review_id: int, user_id: str) -> dict:
         """Add a like to a review and increment like_count"""
+        LIKE_MILESTONE = 5   # Award bonus every 5 likes (EP09-UC003)
+        BONUS_POINTS   = 10  # Bonus points per milestone
+
         def process_like():
             # Add to review_likes table
             like_res = self.client.table("review_likes").insert({
@@ -108,9 +111,21 @@ class CRUDReview:
             if not like_res.data:
                 raise ValueError("Already liked or failed")
 
-            review = self.client.table("reviews").select("like_count").eq("id", review_id).single().execute()
+            review = self.client.table("reviews").select("like_count, user_id").eq("id", review_id).single().execute()
             new_count = (review.data.get("like_count") or 0) + 1
             self.client.table("reviews").update({"like_count": new_count}).eq("id", review_id).execute()
+
+            # EP09-UC003: Award bonus to review author at every milestone
+            if new_count % LIKE_MILESTONE == 0:
+                author_id = review.data.get("user_id")
+                if author_id:
+                    try:
+                        pts_res = self.client.table("users").select("loyalty_points").eq("id", author_id).maybe_single().execute()
+                        if pts_res.data:
+                            new_pts = (pts_res.data.get("loyalty_points") or 0) + BONUS_POINTS
+                            self.client.table("users").update({"loyalty_points": new_pts}).eq("id", author_id).execute()
+                    except Exception:
+                        pass  # bonus is best-effort
 
             return like_res.data[0]
 

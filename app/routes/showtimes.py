@@ -168,12 +168,18 @@ async def hold_seats(
     showtime = await crud_showtime.get_by_id(showtime_id)
     if not showtime:
         raise NotFoundException("Showtime", str(showtime_id))
-    price = float(showtime.get("ticket_price_normal") or showtime.get("base_price") or 0)
+
+    # Use student price when ticket_type is 'student', fall back to normal
+    if body.ticket_type == 'student':
+        price = float(showtime.get("ticket_price_student") or showtime.get("ticket_price_normal") or showtime.get("base_price") or 0)
+    else:
+        price = float(showtime.get("ticket_price_normal") or showtime.get("base_price") or 0)
 
     req = ReserveSeatRequest(
         showtime_id=showtime_id,
         seat_ids=body.seat_ids,
         price_per_seat=price,
+        ticket_type=body.ticket_type,
     )
     result = await crud_booking.reserve_seats(req, user_id=current_user.user_id)
 

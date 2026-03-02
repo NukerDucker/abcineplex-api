@@ -113,7 +113,13 @@ async def delete_admin_movie(movie_id: int):
 @router.post("/showtimes", response_model=Showtime, status_code=201)
 async def create_admin_showtime(showtime: ShowtimeCreate):
     """Create a new showtime for a movie"""
-    return await crud_showtime.create(showtime)
+    try:
+        return await crud_showtime.create(showtime)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(e)
+        )
 
 
 @router.patch("/showtimes/{showtime_id}", response_model=Showtime)
