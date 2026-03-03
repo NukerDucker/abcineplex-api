@@ -85,6 +85,8 @@ async def create_review(
 
         return result
     except ValueError as e:
+        if str(e) == "DUPLICATE_REVIEW":
+            raise HTTPException(status_code=409, detail="You have already reviewed this movie.")
         raise HTTPException(status_code=400, detail=str(e))
 
 

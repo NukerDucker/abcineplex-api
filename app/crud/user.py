@@ -1,6 +1,9 @@
 from supabase import Client
 from typing import List, Optional
 import asyncio
+import logging
+
+logger = logging.getLogger(__name__)
 
 class CRUDUser:
     __slots__ = ('client',)
@@ -9,10 +12,12 @@ class CRUDUser:
         self.client = supabase_client
 
     # Standard columns used across all fetch operations
+    # Keep in sync with the public.users table definition
     SELECT_COLUMNS = (
         "id, email, user_name, full_name, phone, date_of_birth, "
         "loyalty_points, is_admin, is_active, is_student, "
         "student_id_verified, password_hash, "
+        "membership_tier, attendance_streak, "
         "created_at, updated_at"
     )
 
@@ -40,8 +45,9 @@ class CRUDUser:
             if response and response.data and isinstance(response.data, dict):
                 return response.data
             return None
-        except Exception:
+        except Exception as exc:
             # Handle 204 No Content or other errors gracefully
+            logger.warning("get_by_id failed for user %s: %s", user_id, exc)
             return None
 
     async def update(self, user_id: str, data: dict) -> Optional[dict]:
@@ -64,10 +70,19 @@ class CRUDUser:
             )
             if response and response.data and isinstance(response.data, dict):
                 return response.data
-            return None
-        except Exception:
-            # Handle 204 No Content or other errors gracefully
-            return None
+            # UPDATE may have succeeded but the SELECT-after-update returned
+            # nothing (e.g. RLS blocks the return-select on the service client
+            # in some Supabase configurations). Fall back to a plain GET.
+            logger.debug(
+                "update for user %s returned no row from select; falling back to get_by_id",
+                user_id,
+            )
+            return await self.get_by_id(user_id)
+        except Exception as exc:
+            # Log the real error so we know why the update silently failed
+            logger.error("update failed for user %s: %s", user_id, exc)
+            # Try returning the current record so the caller can still succeed
+            return await self.get_by_id(user_id)
 
     async def get_by_username(self, user_name: str) -> Optional[dict]:
         """Helper to find a user by their @username."""

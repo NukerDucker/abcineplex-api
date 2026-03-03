@@ -83,7 +83,13 @@ class CRUDReview:
     async def create(self, review_in: dict, user_id: str) -> dict:
         """Create new review — one per user per movie (enforced by DB unique constraint)"""
         def validate_and_create():
-            insert_res = self.client.table("movie_reviews").insert(review_in).execute()
+            try:
+                insert_res = self.client.table("movie_reviews").insert(review_in).execute()
+            except Exception as exc:
+                # Postgres unique-violation code 23505 → user already reviewed this movie
+                if "23505" in str(exc):
+                    raise ValueError("DUPLICATE_REVIEW")
+                raise
             if not insert_res.data:
                 raise ValueError("Create failed")
             return insert_res.data[0]
