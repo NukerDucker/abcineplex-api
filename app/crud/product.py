@@ -62,15 +62,16 @@ class CRUDProduct:
         if not product_in:
             return await self.get_product(product_id)
 
-        response = await asyncio.to_thread(
+        # Execute update (Supabase returns count by default)
+        await asyncio.to_thread(
             lambda: self.client.table("products")
                 .update(product_in)
                 .eq("id", str(product_id))
-                .select()
-                .maybe_single()
                 .execute()
         )
-        return response.data
+
+        # Fetch the updated product
+        return await self.get_product(product_id)
 
     async def delete_product(self, product_id: UUID) -> bool:
         """Delete product, returns success status"""
@@ -116,16 +117,20 @@ class CRUDProduct:
         return response.data or []
 
     async def update_category(self, category_id: UUID, category_in: dict) -> Optional[dict]:
+        """Update category, returns updated record"""
         if not category_in:
             return await self.get_category(category_id)
 
-        response = await asyncio.to_thread(
+        # Execute update (Supabase returns count by default)
+        await asyncio.to_thread(
             lambda: self.client.table("product_categories")
                 .update(category_in)
                 .eq("id", str(category_id))
                 .execute()
         )
-        return response.data
+
+        # Fetch the updated category
+        return await self.get_category(category_id)
 
     async def delete_category(self, category_id: UUID) -> bool:
         """Soft delete category by setting is_active to False"""

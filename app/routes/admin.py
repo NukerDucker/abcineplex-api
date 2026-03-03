@@ -91,7 +91,7 @@ async def list_admin_movies():
 
 @router.get("/movies/tmdb/{tmdb_id}")
 async def fetch_tmdb_movie(tmdb_id: int):
-    """Fetch movie data from TMDB API and return as pre-filled MovieCreate payload."""
+    """Fetch movie data from TMDB API with Thai release date."""
     from app.core.config import settings
     import httpx
     from datetime import date as date_type
@@ -102,7 +102,7 @@ async def fetch_tmdb_movie(tmdb_id: int):
     url = f"{settings.tmdb_base_url}/movie/{tmdb_id}"
     params = {
         "api_key": settings.tmdb_api_key,
-        "append_to_response": "credits,videos",
+        "append_to_response": "credits,videos,release_dates",  # ← Add release_dates
         "language": "en-US",
     }
 
@@ -114,8 +114,28 @@ async def fetch_tmdb_movie(tmdb_id: int):
             raise HTTPException(status_code=502, detail="TMDB API error")
         data = resp.json()
 
-    # Determine release_status from release_date
-    release_date_str = data.get("release_date") or ""
+    # ── Thai release date from release_dates ──────────────────────────────
+    thai_release_date_str = None
+    thai_certification = ""  # content rating e.g. "G", "13+", "18+"
+
+    if release_dates := data.get("release_dates"):
+        for entry in release_dates.get("results") or []:
+            if entry.get("iso_3166_1") == "TH":          # ← Thailand region
+                releases = entry.get("release_dates") or []
+                if releases:
+                    # Prefer type 3 (Theatrical) > type 4 (Digital) > first available
+                    # TMDB release types: 1=Premiere,2=Limited,3=Theatrical,4=Digital,5=Physical,6=TV
+                    theatrical = next((r for r in releases if r.get("type") == 3), None)
+                    chosen = theatrical or releases[0]
+                    raw = chosen.get("release_date") or ""
+                    thai_release_date_str = raw[:10] if raw else None  # trim to YYYY-MM-DD
+                    thai_certification = chosen.get("certification") or ""
+                break
+
+    # Fall back to global release_date if Thailand has no entry
+    release_date_str = thai_release_date_str or data.get("release_date") or ""
+
+    # ── Release status based on Thai date ────────────────────────────────
     release_status = "upcoming"
     if release_date_str:
         try:
@@ -124,7 +144,7 @@ async def fetch_tmdb_movie(tmdb_id: int):
         except ValueError:
             pass
 
-    # Director and starring from credits
+    # ── Director and starring from credits ───────────────────────────────
     director = None
     starring: list[str] = []
     if credits := data.get("credits"):
@@ -134,7 +154,7 @@ async def fetch_tmdb_movie(tmdb_id: int):
         director = directors[0] if directors else None
         starring = [c["name"] for c in cast[:8]]
 
-    # Trailer from videos
+    # ── Trailer from videos ──────────────────────────────────────────────
     trailer_url = None
     if videos := data.get("videos"):
         for v in (videos.get("results") or []):
@@ -142,24 +162,24 @@ async def fetch_tmdb_movie(tmdb_id: int):
                 trailer_url = f"https://www.youtube.com/watch?v={v['key']}"
                 break
 
-    # Genre
+    # ── Genre ────────────────────────────────────────────────────────────
     genres = data.get("genres") or []
     genre_str = ", ".join(g["name"] for g in genres) if genres else None
 
-    # Image URLs
+    # ── Image URLs ───────────────────────────────────────────────────────
     poster_path = data.get("poster_path")
     backdrop_path = data.get("backdrop_path")
     poster_url = f"{settings.tmdb_image_base_url}{poster_path}" if poster_path else None
     banner_url = f"{settings.tmdb_image_base_url}{backdrop_path}" if backdrop_path else None
-
     runtime = data.get("runtime") or 0
 
+    print()
     return {
         "title": data.get("title", ""),
         "synopsis": data.get("overview"),
-        "release_date": release_date_str,
+        "release_date": release_date_str,         # ← Thai date (fallback: global)
         "runtime_minutes": runtime,
-        "duration_minutes": runtime + 15,  # add 15 min for ads
+        "duration_minutes": runtime + 15,
         "credits_duration_minutes": 5,
         "imdb_score": data.get("vote_average"),
         "rating_count": data.get("vote_count"),
@@ -170,10 +190,9 @@ async def fetch_tmdb_movie(tmdb_id: int):
         "banner_url": banner_url,
         "trailer_url": trailer_url,
         "release_status": release_status,
-        "content_rating": "",
+        "content_rating": thai_certification,     # ← Thai rating (e.g. "13+")
         "is_active": True,
     }
-
 
 @router.post("/movies", response_model=Movie, status_code=201)
 async def create_admin_movie(movie: MovieCreate):
@@ -216,7 +235,7 @@ async def create_admin_showtime(showtime: ShowtimeCreate):
             raise ValueError("start_time is required")
         if showtime.base_price <= 0:
             raise ValueError("base_price must be greater than 0")
-        
+
         return await crud_showtime.create(showtime)
     except ValueError as e:
         raise HTTPException(
