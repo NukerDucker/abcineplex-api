@@ -10,10 +10,8 @@ class ShowtimeCreate(BaseModel):
     theatre_id: int = Field(..., description="Screen/theatre ID")
     start_time: datetime
     base_price: float = Field(..., ge=0)
-    # Extended spec fields (optional — only stored if DB column exists)
     audio_language: Optional[str] = None
     subtitle_language: Optional[str] = None
-    language: Optional[str] = None  # legacy — still written for backwards compat
     format: Optional[str] = None
     ticket_price_normal: Optional[float] = None
     ticket_price_student: Optional[float] = None
@@ -24,6 +22,7 @@ class ShowtimeUpdate(BaseModel):
     movie_id: Optional[int] = None
     theatre_id: Optional[int] = None
     start_time: Optional[datetime] = None
+    end_time: Optional[datetime] = None
     base_price: Optional[float] = Field(None, ge=0)
     audio_language: Optional[str] = None
     subtitle_language: Optional[str] = None
