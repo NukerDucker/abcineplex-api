@@ -69,11 +69,12 @@ class BookingDetail(BaseModel):
     ticket_type:      Optional[str]   = None
     num_tickets:      Optional[int]   = None
     total_amount:     float
-    payment_deadline: datetime
-    created_at:       datetime
+    payment_deadline: Optional[datetime] = None
+    created_at:       Optional[datetime] = None
+    updated_at:       Optional[datetime] = None
     showtime_id:      int
-    screen_name:      str
-    seats:            List[str]       # ["A1", "B3", ...]
+    screen_name:      Optional[str]   = None
+    seats:            Optional[List[str]] = None   # ["A1", "B3", ...]
     movie_title:      Optional[str]   = None
     poster_url:       Optional[str]   = None
     showtime_start:   Optional[Any]   = None

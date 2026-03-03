@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, computed_field
 from uuid import UUID
 from decimal import Decimal
 from typing import List, Optional
@@ -22,9 +22,13 @@ class OrderItemCreate(OrderItemBase):
     pass
 
 class OrderItem(OrderItemBase):
-    id: UUID
+    id: int
     unit_price: Decimal
-    subtotal: Decimal
+
+    @computed_field
+    @property
+    def subtotal(self) -> Decimal:
+        return self.unit_price * self.quantity
 
     class Config:
         from_attributes = True
@@ -38,10 +42,11 @@ class OrderResponse(BaseModel):
     # This is what the API returns
     id: UUID
     user_id: Optional[UUID]
-    status: OrderStatus
+    status: OrderStatus = Field(validation_alias="order_status")
     total_amount: Decimal
-    items: List[OrderItem]
+    items: List[OrderItem] = Field(validation_alias="order_items")
     created_at: datetime
 
     class Config:
         from_attributes = True
+        populate_by_name = True

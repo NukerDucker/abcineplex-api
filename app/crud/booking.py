@@ -176,11 +176,11 @@ class CRUDBooking:
         limit: int = 100,
         offset: int = 0,
     ) -> List[Dict[str, Any]]:
-        """Admin: list all bookings with optional status filter."""
+        """Admin: list all bookings with enriched info (movie title, seats, payment data)."""
         try:
             def _fetch():
                 q = (
-                    self.client.table("bookings")
+                    self.client.from_("booking_details")
                     .select("*")
                     .order("created_at", desc=True)
                     .limit(limit)
@@ -191,7 +191,35 @@ class CRUDBooking:
                 return q.execute()
 
             res = await asyncio.to_thread(_fetch)
-            return res.data or []
+            rows: List[Dict[str, Any]] = res.data or []
+
+            if not rows:
+                return rows
+
+            # Batch-fetch payment data and merge into each row
+            booking_ids = [r["booking_id"] for r in rows if r.get("booking_id")]
+            if booking_ids:
+                pay_res = await asyncio.to_thread(
+                    lambda: self.client.table("payments")
+                        .select("booking_id, paid_at, payment_method, status")
+                        .in_("booking_id", booking_ids)
+                        .order("created_at", desc=True)
+                        .execute()
+                )
+                # Keep only the latest payment per booking
+                pay_map: Dict[str, Dict[str, Any]] = {}
+                for p in (pay_res.data or []):
+                    bid = p.get("booking_id")
+                    if bid and bid not in pay_map:
+                        pay_map[bid] = p
+
+                for r in rows:
+                    pay = pay_map.get(str(r.get("booking_id", "")))
+                    r["paid_at"] = pay["paid_at"] if pay else None
+                    r["payment_method"] = pay["payment_method"] if pay else None
+                    r["payment_status"] = pay["status"] if pay else None
+
+            return rows
         except Exception as e:
             logger.error(f"get_all_bookings error: {e}")
             raise

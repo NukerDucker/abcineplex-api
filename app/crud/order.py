@@ -20,17 +20,31 @@ class CRUDOrder:
 
     async def create_order(self, user_id: UUID, order: OrderCreate) -> dict:
         """Create new snack order"""
-        # Insert order with total amount calculated from items
+        # Fetch unit prices for all products in one query
+        product_ids = list({str(item.product_id) for item in order.items})
+        price_res = await asyncio.to_thread(
+            lambda: self.client.table("products")
+                .select("id, price")
+                .in_("id", product_ids)
+                .execute()
+        )
+        price_map = {row["id"]: row["price"] for row in (price_res.data or [])}
+
+        # Calculate total amount
+        total_amount = sum(
+            float(price_map.get(str(item.product_id), 0)) * item.quantity
+            for item in order.items
+        )
+
         order_data = {
             "user_id": str(user_id),
-            "status": OrderStatus.PENDING.value,
-            "total_amount": 0,  # Will be calculated by database trigger
+            "order_status": OrderStatus.PENDING.value,
+            "total_amount": total_amount,
         }
 
         response = await asyncio.to_thread(
             lambda: self.client.table("orders")
                 .insert(order_data)
-                .select()
                 .execute()
         )
 
@@ -39,17 +53,18 @@ class CRUDOrder:
 
         order_id = response.data[0]["id"]
 
-        # Insert order items
+        # Insert order items with unit_price
         for item in order.items:
             item_data = {
                 "order_id": order_id,
                 "product_id": str(item.product_id),
                 "quantity": item.quantity,
+                "unit_price": float(price_map.get(str(item.product_id), 0)),
             }
 
             await asyncio.to_thread(
-                lambda: self.client.table("order_items")
-                    .insert(item_data)
+                lambda d=item_data: self.client.table("order_items")
+                    .insert(d)
                     .execute()
             )
 
@@ -108,7 +123,7 @@ class CRUDOrder:
                 query = query.eq("user_id", str(current_user_id))
 
             if status:
-                query = query.eq("status", status)
+                query = query.eq("order_status", status)
 
             return query \
                 .order("created_at", desc=True) \
@@ -132,7 +147,7 @@ class CRUDOrder:
         def _fetch():
             query = self.client.table("orders").select("*, order_items(*)")
             if status:
-                query = query.eq("status", status)
+                query = query.eq("order_status", status)
             return query \
                 .order("created_at", desc=True) \
                 .range(skip, skip + limit - 1) \
@@ -152,16 +167,14 @@ class CRUDOrder:
         if not is_admin:
             raise UnauthorizedException()
 
-        response = await asyncio.to_thread(
+        await asyncio.to_thread(
             lambda: self.client.table("orders")
-                .update({"status": status.value})
+                .update({"order_status": status.value})
                 .eq("id", str(order_id))
-                .select("*, order_items(*)")
-                .maybe_single()
                 .execute()
         )
 
-        return response.data
+        return await self.get_order(order_id, current_user_id, is_admin=True)
 
     async def cancel_order(
         self,
@@ -176,19 +189,17 @@ class CRUDOrder:
             return None
 
         # Check if order can be cancelled
-        if order["status"] != OrderStatus.PENDING.value and not is_admin:
-            raise ValueError(f"Cannot cancel order with status: {order['status']}")
+        if order["order_status"] != OrderStatus.PENDING.value and not is_admin:
+            raise ValueError(f"Cannot cancel order with status: {order['order_status']}")
 
-        response = await asyncio.to_thread(
+        await asyncio.to_thread(
             lambda: self.client.table("orders")
-                .update({"status": OrderStatus.CANCELLED.value})
+                .update({"order_status": OrderStatus.CANCELLED.value})
                 .eq("id", str(order_id))
-                .select("*, order_items(*)")
-                .maybe_single()
                 .execute()
         )
 
-        return response.data
+        return await self.get_order(order_id, current_user_id, is_admin)
 
     async def delete_order(
         self,
