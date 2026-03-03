@@ -76,8 +76,10 @@ class CRUDMovie:
         """Get showtimes for a movie within [from_date, to_date].
 
         Joins screens table to get theatre name and seat counts.
+        Falls back to manual join if PostgREST relationship isn't available.
         """
         try:
+            # Try using PostgREST relationship join first
             response = await asyncio.to_thread(
                 lambda: self.client.table("showtimes")
                     .select("*, theatres(name, total_seats)")
@@ -89,5 +91,45 @@ class CRUDMovie:
             )
             return response.data or []
         except Exception as e:
-            logger.error(f"Failed to fetch showtimes for movie {movie_id}: {e}")
-            return []
+            logger.warning(f"PostgREST join failed for showtimes: {e}. Falling back to manual join.")
+            try:
+                # Fallback: fetch showtimes and theatres separately, then merge
+                showtimes_response = await asyncio.to_thread(
+                    lambda: self.client.table("showtimes")
+                        .select("*")
+                        .eq("movie_id", movie_id)
+                        .gte("start_time", from_date)
+                        .lte("start_time", to_date)
+                        .order("start_time")
+                        .execute()
+                )
+
+                showtimes_data = showtimes_response.data or []
+
+                # If no showtimes, return empty list
+                if not showtimes_data:
+                    return []
+
+                # Get unique theatre IDs
+                theatre_ids = list(set(st.get("theatre_id") for st in showtimes_data))
+
+                # Fetch theatre data for all theatre IDs
+                theatres_response = await asyncio.to_thread(
+                    lambda: self.client.table("theatres")
+                        .select("id, name, total_seats")
+                        .in_("id", theatre_ids)
+                        .execute()
+                )
+
+                theatres_map = {t["id"]: t for t in (theatres_response.data or [])}
+
+                # Merge theatre data into showtimes
+                for showtime in showtimes_data:
+                    theatre_id = showtime.get("theatre_id")
+                    if theatre_id in theatres_map:
+                        showtime["theatres"] = theatres_map[theatre_id]
+
+                return showtimes_data
+            except Exception as fallback_error:
+                logger.error(f"Failed to fetch showtimes for movie {movie_id}: {fallback_error}")
+                return []

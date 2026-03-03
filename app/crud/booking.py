@@ -180,7 +180,7 @@ class CRUDBooking:
         try:
             def _fetch():
                 q = (
-                    self.client.from_("booking_details")
+                    self.client.from_("bookings")
                     .select("*")
                     .order("created_at", desc=True)
                     .limit(limit)
@@ -197,7 +197,7 @@ class CRUDBooking:
                 return rows
 
             # Batch-fetch payment data and merge into each row
-            booking_ids = [r["booking_id"] for r in rows if r.get("booking_id")]
+            booking_ids = [r["id"] for r in rows if r.get("id")]
             if booking_ids:
                 pay_res = await asyncio.to_thread(
                     lambda: self.client.table("payments")
@@ -214,7 +214,7 @@ class CRUDBooking:
                         pay_map[bid] = p
 
                 for r in rows:
-                    pay = pay_map.get(str(r.get("booking_id", "")))
+                    pay = pay_map.get(str(r.get("id", "")))
                     r["paid_at"] = pay["paid_at"] if pay else None
                     r["payment_method"] = pay["payment_method"] if pay else None
                     r["payment_status"] = pay["status"] if pay else None

@@ -199,7 +199,7 @@ class CRUDShowtime:
         # 1. All seats in this theatre
         seats_resp = await asyncio.to_thread(
             lambda: self.client.table("seats")
-                .select("id, row_label, seat_number, seat_type, is_active")
+                .select("id, row_label, seat_number, is_active")
                 .eq("theatre_id", theatre_id)
                 .order("row_label")
                 .order("seat_number")

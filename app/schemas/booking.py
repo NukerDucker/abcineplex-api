@@ -74,7 +74,7 @@ class BookingDetail(BaseModel):
     updated_at:       Optional[datetime] = None
     showtime_id:      int
     screen_name:      Optional[str]   = None
-    seats:            Optional[List[str]] = None   # ["A1", "B3", ...]
+    seats:            Optional[List[dict]] = None   # [{"seat_id": 1, "row_label": "A", "seat_number": 1}, ...]
     movie_title:      Optional[str]   = None
     poster_url:       Optional[str]   = None
     showtime_start:   Optional[Any]   = None

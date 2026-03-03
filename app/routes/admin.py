@@ -11,10 +11,12 @@ from app.crud.showtime import CRUDShowtime
 from app.crud.booking import CRUDBooking
 from app.crud.user import CRUDUser
 from app.crud.public import CRUDPublic
+from app.crud.theatre import CRUDTheatre, CRUDSeat
 from app.schemas.movie import Movie, MovieCreate, MovieUpdate
 from app.schemas.showtime import Showtime, ShowtimeCreate, ShowtimeUpdate
 from app.schemas.user import AdminUserResponse, AdminUserUpdate
 from app.schemas.public import HeroSlide, HeroSlideCreate, HeroSlideUpdate, Promotion, PromotionCreate, PromotionUpdate
+from app.schemas.theatre import Theatre, TheatreCreate, TheatreUpdate, Seat, SeatCreate, SeatUpdate
 from app.core.supabase import supabase_admin
 from app.core.security import get_admin_user, CurrentUser
 from app.core.exceptions import NotFoundException
@@ -35,6 +37,8 @@ crud_showtime = CRUDShowtime(supabase_admin)
 crud_booking = CRUDBooking(supabase_admin)
 crud_user = CRUDUser(supabase_admin)
 crud_public = CRUDPublic(supabase_admin)
+crud_theatre = CRUDTheatre(supabase_admin)
+crud_seat = CRUDSeat(supabase_admin)
 
 
 # ========== Dashboard ==========
@@ -234,7 +238,7 @@ async def delete_admin_showtime(showtime_id: int):
 async def list_admin_bookings(
     user_id: Optional[UUID] = Query(None),
     showtime_id: Optional[int] = Query(None),
-    status: Optional[str] = Query(None),
+    booking_status: Optional[str] = Query(None),
     date: Optional[str] = Query(None),
     limit: int = Query(100, ge=1, le=1000),
     offset: int = Query(0, ge=0)
@@ -244,9 +248,9 @@ async def list_admin_bookings(
         # TODO: Implement filtered booking list from CRUD
         # - Filter by user_id if provided
         # - Filter by showtime_id if provided
-        # - Filter by status if provided
+        # - Filter by booking_status if provided
         # - Filter by date if provided
-        bookings = await crud_booking.get_all_bookings(status, limit, offset)
+        bookings = await crud_booking.get_all_bookings(booking_status, limit, offset)
         return {"bookings": bookings, "count": len(bookings)}
     except Exception as e:
         logger.error(f"Error fetching bookings: {e}")
@@ -375,3 +379,179 @@ async def delete_promotion(promo_id: str):
     if not success:
         raise NotFoundException("Promotion", promo_id)
     return {"status": "success"}
+
+
+# ========== Theatre Management ==========
+
+@router.get("/theatres", response_model=List[Theatre])
+async def list_theatres():
+    """List all theatres"""
+    try:
+        theatres = await crud_theatre.get_all()
+        return theatres
+    except Exception as e:
+        logger.error(f"Error fetching theatres: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to fetch theatres"
+        )
+
+
+@router.get("/theatres/{theatre_id}", response_model=Theatre)
+async def get_theatre(theatre_id: int):
+    """Get theatre details"""
+    try:
+        theatre = await crud_theatre.get_by_id(theatre_id)
+        if not theatre:
+            raise NotFoundException("Theatre", theatre_id)
+        return theatre
+    except NotFoundException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching theatre {theatre_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to fetch theatre"
+        )
+
+
+@router.post("/theatres", response_model=Theatre, status_code=201)
+async def create_theatre(theatre: TheatreCreate):
+    """Create new theatre"""
+    try:
+        new_theatre = await crud_theatre.create(theatre)
+        return new_theatre
+    except Exception as e:
+        logger.error(f"Error creating theatre: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create theatre"
+        )
+
+
+@router.patch("/theatres/{theatre_id}", response_model=Theatre)
+async def update_theatre(theatre_id: int, theatre: TheatreUpdate):
+    """Update theatre details"""
+    try:
+        updated = await crud_theatre.update(theatre_id, theatre)
+        if not updated:
+            raise NotFoundException("Theatre", theatre_id)
+        return updated
+    except NotFoundException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating theatre {theatre_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update theatre"
+        )
+
+
+@router.delete("/theatres/{theatre_id}")
+async def delete_theatre(theatre_id: int):
+    """Delete theatre"""
+    try:
+        success = await crud_theatre.delete(theatre_id)
+        if not success:
+            raise NotFoundException("Theatre", theatre_id)
+        return {"status": "success"}
+    except NotFoundException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting theatre {theatre_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to delete theatre"
+        )
+
+
+# ========== Seat Management ==========
+
+@router.get("/theatres/{theatre_id}/seats", response_model=List[Seat])
+async def list_theatre_seats(theatre_id: int):
+    """List all seats for a theatre"""
+    try:
+        # Verify theatre exists
+        theatre = await crud_theatre.get_by_id(theatre_id)
+        if not theatre:
+            raise NotFoundException("Theatre", theatre_id)
+
+        seats = await crud_seat.get_by_theatre(theatre_id)
+        return seats
+    except NotFoundException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching seats for theatre {theatre_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to fetch seats"
+        )
+
+
+@router.post("/theatres/{theatre_id}/seats", response_model=Seat, status_code=201)
+async def create_seat(theatre_id: int, seat: SeatCreate):
+    """Create new seat for theatre"""
+    try:
+        # Verify theatre exists
+        theatre = await crud_theatre.get_by_id(theatre_id)
+        if not theatre:
+            raise NotFoundException("Theatre", theatre_id)
+
+        # Ensure seat's theatre_id matches URL parameter
+        seat.theatre_id = theatre_id
+        new_seat = await crud_seat.create(seat)
+        return new_seat
+    except NotFoundException:
+        raise
+    except Exception as e:
+        logger.error(f"Error creating seat for theatre {theatre_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create seat"
+        )
+
+
+@router.patch("/theatres/{theatre_id}/seats/{seat_id}", response_model=Seat)
+async def update_seat(theatre_id: int, seat_id: int, seat: SeatUpdate):
+    """Update seat status"""
+    try:
+        # Verify theatre exists
+        theatre = await crud_theatre.get_by_id(theatre_id)
+        if not theatre:
+            raise NotFoundException("Theatre", theatre_id)
+
+        updated = await crud_seat.update(seat_id, seat)
+        if not updated:
+            raise NotFoundException("Seat", seat_id)
+        return updated
+    except NotFoundException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating seat {seat_id} in theatre {theatre_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update seat"
+        )
+
+
+@router.delete("/theatres/{theatre_id}/seats/{seat_id}")
+async def delete_seat(theatre_id: int, seat_id: int):
+    """Delete seat"""
+    try:
+        # Verify theatre exists
+        theatre = await crud_theatre.get_by_id(theatre_id)
+        if not theatre:
+            raise NotFoundException("Theatre", theatre_id)
+
+        success = await crud_seat.delete(seat_id)
+        if not success:
+            raise NotFoundException("Seat", seat_id)
+        return {"status": "success"}
+    except NotFoundException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting seat {seat_id} from theatre {theatre_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to delete seat"
+        )

@@ -79,7 +79,7 @@ class BookingSummary(BaseModel):
     poster_url: Optional[str] = None
     screen_name: Optional[str] = None
     showtime_start: Optional[str] = None
-    seats: Optional[List[str]] = None
+    seats: Optional[List[dict]] = None  # [{"seat_id": int, "row_label": str, "seat_number": int}, ...]
 
     model_config = ConfigDict(from_attributes=True)
 
