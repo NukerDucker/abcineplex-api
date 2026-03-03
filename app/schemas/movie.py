@@ -24,6 +24,7 @@ class MovieCreate(BaseModel):
     release_status: str = "upcoming"
     genre: Optional[str] = None
     credits_duration_minutes: int
+    is_active: bool = True
 
 class MovieUpdate(BaseModel):
     """All optional for partial updates (PATCH semantics)."""
@@ -43,6 +44,7 @@ class MovieUpdate(BaseModel):
     tag_event: Optional[str] = None
     release_status: Optional[str] = None
     genre: Optional[str] = None
+    is_active: Optional[bool] = None
 
 
 # ── Spec-aligned public response schemas ──────────────────────────────────────
@@ -68,6 +70,7 @@ class MovieSummary(BaseModel):
     audio_languages: Optional[List[str]] = None
     subtitle_languages: Optional[List[str]] = None
     release_status: Optional[str] = None
+    is_active: bool = True
 
     class Config:
         from_attributes = True
@@ -94,6 +97,7 @@ class MovieDetail(BaseModel):
     subtitle_languages: Optional[List[str]] = None
     credits_duration_minutes: int = 5
     release_status: Optional[str] = None
+    is_active: bool = True
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 

@@ -9,6 +9,11 @@ class CategoryBase(BaseModel):
     name: str
     display_order: int = 0
 
+class CategoryUpdate(BaseModel):
+    name: Optional[str] = None
+    display_order: Optional[int] = None
+    is_active: Optional[bool] = None
+
 class Category(CategoryBase):
     id: UUID
     is_active: bool

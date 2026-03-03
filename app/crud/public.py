@@ -29,11 +29,9 @@ class CRUDPublic:
             lambda: self.client.table("hero_carousel")
                 .update(data)
                 .eq("id", slide_id)
-                .select()
-                .maybe_single()
                 .execute()
         )
-        return response.data
+        return response.data[0] if response.data else None
 
     async def delete_hero_slide(self, slide_id: str) -> bool:
         """Delete hero slide"""

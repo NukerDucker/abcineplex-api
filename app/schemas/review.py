@@ -5,7 +5,6 @@ from typing import Optional, List
 
 class ReviewBase(BaseModel):
     movie_id: int
-    booking_id: Optional[int] = None
     review_text: str
     rating: float = Field(..., ge=1.0, le=5.0, description="Rating: 1.0 to 5.0")
 
@@ -22,22 +21,38 @@ class ReviewUpdate(BaseModel):
 class ReviewResponse(BaseModel):
     id: int
     movie_id: int
-    booking_id: Optional[int] = None
     user_id: str
-    username: str
-    review_text: str
+    username: Optional[str] = None
+    review_text: Optional[str] = None
     rating: float
-    like_count: int
+    like_count: int = 0
     created_at: datetime
-    updated_at: datetime
+    updated_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True
 
 
+class MovieSnippet(BaseModel):
+    id: int
+    title: str
+    poster_url: Optional[str] = None
+    release_date: Optional[str] = None
+
+
+class ReviewWithMovie(ReviewResponse):
+    """ReviewResponse enriched with movie info for community feed"""
+    movie: Optional[MovieSnippet] = None
+
+
 class ReviewListResponse(BaseModel):
     total: int
     items: List[ReviewResponse]
+
+
+class ReviewWithMovieListResponse(BaseModel):
+    total: int
+    items: List[ReviewWithMovie]
 
 
 class ReviewLikeResponse(BaseModel):

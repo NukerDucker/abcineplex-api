@@ -8,15 +8,24 @@ class CRUDReview:
     def __init__(self, supabase_client: Client):
         self.client = supabase_client
 
+    def _enrich_with_movie(self, review: dict) -> dict:
+        """Pull movies sub-object up into a 'movie' key."""
+        movies_data = review.pop('movies', None)
+        if movies_data and isinstance(movies_data, dict):
+            review['movie'] = movies_data
+        else:
+            review['movie'] = None
+        return review
+
     async def get_by_movie(self, movie_id: int, skip: int = 0, limit: int = 20) -> dict:
         """Get reviews for a movie with total count"""
         def fetch_data():
-            count_res = self.client.table("reviews") \
+            count_res = self.client.table("movie_reviews") \
                 .select("id", count="exact") \
                 .eq("movie_id", movie_id) \
                 .execute()
 
-            reviews_res = self.client.table("reviews") \
+            reviews_res = self.client.table("movie_reviews") \
                 .select("*") \
                 .eq("movie_id", movie_id) \
                 .order("created_at", desc=True) \
@@ -26,46 +35,55 @@ class CRUDReview:
             return count_res.count or 0, reviews_res.data or []
 
         total, items = await asyncio.to_thread(fetch_data)
+        return {"total": total, "items": items}
 
-        return {
-            "total": total,
-            "items": items
-        }
+    async def get_latest(self, limit: int = 20, user_id: Optional[str] = None) -> dict:
+        """Get latest reviews across all movies, enriched with movie info"""
+        def fetch():
+            res = self.client.table("movie_reviews") \
+                .select("*, movies!inner(id, title, poster_url, release_date)") \
+                .order("created_at", desc=True) \
+                .limit(limit) \
+                .execute()
+            rows = res.data or []
+            if user_id and rows:
+                liked_res = self.client.table("review_likes") \
+                    .select("review_id") \
+                    .eq("user_id", user_id) \
+                    .in_("review_id", [r["id"] for r in rows]) \
+                    .execute()
+                liked_set = {l["review_id"] for l in (liked_res.data or [])}
+            else:
+                liked_set = set()
+            result = []
+            for r in rows:
+                r = self._enrich_with_movie(dict(r))
+                r["user_liked"] = r["id"] in liked_set
+                result.append(r)
+            return result
+
+        items = await asyncio.to_thread(fetch)
+        return {"total": len(items), "items": items}
+
+    async def get_by_user(self, user_id: str, limit: int = 50) -> dict:
+        """Get all reviews written by a specific user, enriched with movie info"""
+        def fetch():
+            res = self.client.table("movie_reviews") \
+                .select("*, movies!inner(id, title, poster_url, release_date)") \
+                .eq("user_id", user_id) \
+                .order("created_at", desc=True) \
+                .limit(limit) \
+                .execute()
+            rows = res.data or []
+            return [self._enrich_with_movie(dict(r)) for r in rows]
+
+        items = await asyncio.to_thread(fetch)
+        return {"total": len(items), "items": items}
 
     async def create(self, review_in: dict, user_id: str) -> dict:
-        """Create new review with optional booking validation"""
-        booking_id = review_in.get('booking_id')
-        movie_id = review_in.get('movie_id')
-
+        """Create new review — one per user per movie (enforced by DB unique constraint)"""
         def validate_and_create():
-            if booking_id:
-                # Validate booking exists and belongs to user
-                booking_res = self.client.table('bookings') \
-                    .select('id, user_id, booking_status, showtime_id') \
-                    .eq('id', booking_id) \
-                    .eq('user_id', user_id) \
-                    .maybe_single() \
-                    .execute()
-
-                if not booking_res.data:
-                    raise ValueError("Booking not found or does not belong to you")
-
-                booking = booking_res.data
-                if booking.get('booking_status') != 'confirmed':
-                    raise ValueError("You can only review movies from confirmed bookings")
-
-                # Verify the showtime's movie matches the review's movie_id
-                showtime_res = self.client.table('showtimes') \
-                    .select('movie_id') \
-                    .eq('id', booking.get('showtime_id')) \
-                    .maybe_single() \
-                    .execute()
-
-                if not showtime_res.data or showtime_res.data.get('movie_id') != movie_id:
-                    raise ValueError("The movie in your booking does not match the movie being reviewed")
-
-            # Insert review
-            insert_res = self.client.table("reviews").insert(review_in).execute()
+            insert_res = self.client.table("movie_reviews").insert(review_in).execute()
             if not insert_res.data:
                 raise ValueError("Create failed")
             return insert_res.data[0]
@@ -75,7 +93,7 @@ class CRUDReview:
     async def update(self, review_id: int, review_in: dict, user_id: str) -> Optional[dict]:
         """Update review text or rating if owned by user"""
         response = await asyncio.to_thread(
-            lambda: self.client.table("reviews")
+            lambda: self.client.table("movie_reviews")
                 .update(review_in)
                 .eq("id", review_id)
                 .eq("user_id", user_id)
@@ -88,7 +106,7 @@ class CRUDReview:
     async def delete(self, review_id: int, user_id: str) -> bool:
         """Delete review if owned by user"""
         response = await asyncio.to_thread(
-            lambda: self.client.table("reviews")
+            lambda: self.client.table("movie_reviews")
                 .delete()
                 .eq("id", review_id)
                 .eq("user_id", user_id)
@@ -98,34 +116,18 @@ class CRUDReview:
 
     async def add_like(self, review_id: int, user_id: str) -> dict:
         """Add a like to a review and increment like_count"""
-        LIKE_MILESTONE = 5   # Award bonus every 5 likes (EP09-UC003)
-        BONUS_POINTS   = 10  # Bonus points per milestone
-
         def process_like():
-            # Add to review_likes table
             like_res = self.client.table("review_likes").insert({
                 "review_id": review_id,
                 "user_id": user_id
-            }).select().execute()
+            }).execute()
 
             if not like_res.data:
                 raise ValueError("Already liked or failed")
 
-            review = self.client.table("reviews").select("like_count, user_id").eq("id", review_id).single().execute()
+            review = self.client.table("movie_reviews").select("like_count, user_id").eq("id", review_id).single().execute()
             new_count = (review.data.get("like_count") or 0) + 1
-            self.client.table("reviews").update({"like_count": new_count}).eq("id", review_id).execute()
-
-            # EP09-UC003: Award bonus to review author at every milestone
-            if new_count % LIKE_MILESTONE == 0:
-                author_id = review.data.get("user_id")
-                if author_id:
-                    try:
-                        pts_res = self.client.table("users").select("loyalty_points").eq("id", author_id).maybe_single().execute()
-                        if pts_res.data:
-                            new_pts = (pts_res.data.get("loyalty_points") or 0) + BONUS_POINTS
-                            self.client.table("users").update({"loyalty_points": new_pts}).eq("id", author_id).execute()
-                    except Exception:
-                        pass  # bonus is best-effort
+            self.client.table("movie_reviews").update({"like_count": new_count}).eq("id", review_id).execute()
 
             return like_res.data[0]
 
@@ -148,9 +150,9 @@ class CRUDReview:
             if not unlike_res.data:
                 return False
 
-            review = self.client.table("reviews").select("like_count").eq("id", review_id).single().execute()
+            review = self.client.table("movie_reviews").select("like_count").eq("id", review_id).single().execute()
             new_count = max(0, (review.data.get("like_count") or 0) - 1)
-            self.client.table("reviews").update({"like_count": new_count}).eq("id", review_id).execute()
+            self.client.table("movie_reviews").update({"like_count": new_count}).eq("id", review_id).execute()
 
             return True
 

@@ -116,7 +116,6 @@ class CRUDProduct:
         return response.data or []
 
     async def update_category(self, category_id: UUID, category_in: dict) -> Optional[dict]:
-        """Update category"""
         if not category_in:
             return await self.get_category(category_id)
 
@@ -124,8 +123,6 @@ class CRUDProduct:
             lambda: self.client.table("product_categories")
                 .update(category_in)
                 .eq("id", str(category_id))
-                .select()
-                .maybe_single()
                 .execute()
         )
         return response.data

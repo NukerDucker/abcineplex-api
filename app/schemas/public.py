@@ -1,4 +1,4 @@
-from pydantic import BaseModel, HttpUrl
+from pydantic import BaseModel
 from datetime import datetime
 from typing import Optional
 
@@ -9,9 +9,10 @@ class PublicContentBase(BaseModel):
 
 # --- Hero Carousel ---
 class HeroSlideBase(PublicContentBase):
-    banner_url: Optional[str] = None
-    content_type: Optional[str] = None
-    target_url: Optional[str] = None
+    image_url: str
+    description: Optional[str] = None
+    cta_link: Optional[str] = None
+    cta_text: Optional[str] = None
     display_order: Optional[int] = 0
 
 class HeroSlideCreate(HeroSlideBase):
@@ -20,13 +21,14 @@ class HeroSlideCreate(HeroSlideBase):
 class HeroSlideUpdate(BaseModel):
     title: Optional[str] = None
     is_active: Optional[bool] = None
-    banner_url: Optional[HttpUrl] = None
-    content_type: Optional[str] = None
-    target_url: Optional[str] = None
+    image_url: Optional[str] = None
+    description: Optional[str] = None
+    cta_link: Optional[str] = None
+    cta_text: Optional[str] = None
     display_order: Optional[int] = None
 
 class HeroSlide(HeroSlideBase):
-    id: int
+    id: str
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
@@ -45,6 +47,6 @@ class PromotionUpdate(BaseModel):
     promo_type: Optional[str] = None
 
 class Promotion(PromotionBase):
-    id: int
+    id: str
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None

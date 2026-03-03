@@ -9,7 +9,7 @@ from uuid import UUID
 from app.crud.product import CRUDProduct
 from app.schemas.product import (
     Product, ProductCreate, ProductUpdate,
-    Category, CategoryBase
+    Category, CategoryBase, CategoryUpdate
 )
 from app.core.supabase import supabase_admin
 from app.core.security import get_current_user, get_admin_user, CurrentUser
@@ -51,7 +51,7 @@ async def get_category(category_id: str):
 @router.patch("/categories/{category_id}", response_model=Category)
 async def update_category(
     category_id: str,
-    category_in: CategoryBase,
+    category_in: CategoryUpdate,
     _: CurrentUser = Depends(get_admin_user),
 ):
     """Update category (admin only)"""

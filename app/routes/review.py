@@ -6,7 +6,9 @@ from app.schemas.review import (
     ReviewUpdate,
     ReviewListResponse,
     ReviewResponse,
-    ReviewLikeResponse
+    ReviewLikeResponse,
+    ReviewWithMovie,
+    ReviewWithMovieListResponse,
 )
 from app.crud.review import CRUDReview
 from app.core.supabase import supabase_admin
@@ -15,6 +17,24 @@ from app.core.exceptions import NotFoundException, AppException
 
 router = APIRouter(prefix="/api/v1/reviews", tags=["reviews"])
 crud_review = CRUDReview(supabase_admin)
+
+
+# -------- GET LATEST REVIEWS (community feed) --------
+@router.get("/latest", response_model=ReviewWithMovieListResponse)
+async def read_latest_reviews(
+    limit: int = Query(20, ge=1, le=100),
+):
+    """Get latest reviews across all movies for community feed"""
+    return await crud_review.get_latest(limit=limit, user_id=None)
+
+
+# -------- GET MY REVIEWS --------
+@router.get("/me", response_model=ReviewWithMovieListResponse)
+async def read_my_reviews(
+    current_user: CurrentUser = Depends(get_current_user)
+):
+    """Get all reviews written by the current user"""
+    return await crud_review.get_by_user(user_id=current_user.user_id)
 
 
 # -------- GET REVIEWS (WITH TOTAL COUNT) --------

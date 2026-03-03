@@ -64,7 +64,7 @@ async def list_movies(
 ):
     """Browse movies with optional release_, genre, and title-search filters."""
     rows, total = await crud_movie.get_multi(
-        page=page, limit=limit, release_status=status
+        page=page, limit=limit, release_status=status, active_only=True
     )
     return MovieListResponse(
         movies=rows,  # FastAPI/Pydantic will automatically convert these dicts to MovieSummary objects

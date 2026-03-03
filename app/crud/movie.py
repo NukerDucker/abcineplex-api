@@ -52,6 +52,7 @@ class CRUDMovie:
         page: int = 1,
         limit: int = 20,
         release_status: Optional[str] = None,
+        active_only: bool = False,
     ) -> tuple[List[dict], int]:
         offset = (page - 1) * limit
 
@@ -59,6 +60,8 @@ class CRUDMovie:
             query = self.client.table("movies").select("*", count="exact")
             if release_status:
                 query = query.eq("release_status", release_status)
+            if active_only:
+                query = query.eq("is_active", True)
             return query.range(offset, offset + limit - 1).execute()
 
         response = await asyncio.to_thread(_fetch)

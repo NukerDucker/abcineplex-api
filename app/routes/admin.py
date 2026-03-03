@@ -70,9 +70,9 @@ async def get_admin_dashboard(current_user: CurrentUser = Depends(get_admin_user
 
 @router.get("/movies", response_model=List[Movie])
 async def list_admin_movies():
-    """List all movies (all statuses)"""
+    """List all movies (all statuses, including hidden)"""
     try:
-        rows, _ = await crud_movie.get_multi(page=1, limit=500)
+        rows, _ = await crud_movie.get_multi(page=1, limit=500, active_only=False)
         return rows
     except Exception as e:
         logger.error(f"Error fetching admin movie list: {e}")
@@ -80,6 +80,92 @@ async def list_admin_movies():
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to fetch movies"
         )
+
+
+@router.get("/movies/tmdb/{tmdb_id}")
+async def fetch_tmdb_movie(tmdb_id: int):
+    """Fetch movie data from TMDB API and return as pre-filled MovieCreate payload."""
+    from app.core.config import settings
+    import httpx
+    from datetime import date as date_type
+
+    if not settings.tmdb_api_key:
+        raise HTTPException(status_code=503, detail="TMDB API key not configured")
+
+    url = f"{settings.tmdb_base_url}/movie/{tmdb_id}"
+    params = {
+        "api_key": settings.tmdb_api_key,
+        "append_to_response": "credits,videos",
+        "language": "en-US",
+    }
+
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        resp = await client.get(url, params=params)
+        if resp.status_code == 404:
+            raise HTTPException(status_code=404, detail=f"TMDB movie {tmdb_id} not found")
+        if resp.status_code != 200:
+            raise HTTPException(status_code=502, detail="TMDB API error")
+        data = resp.json()
+
+    # Determine release_status from release_date
+    release_date_str = data.get("release_date") or ""
+    release_status = "upcoming"
+    if release_date_str:
+        try:
+            rd = date_type.fromisoformat(release_date_str)
+            release_status = "now_showing" if rd <= date_type.today() else "upcoming"
+        except ValueError:
+            pass
+
+    # Director and starring from credits
+    director = None
+    starring: list[str] = []
+    if credits := data.get("credits"):
+        crew = credits.get("crew") or []
+        cast = credits.get("cast") or []
+        directors = [c["name"] for c in crew if c.get("job") == "Director"]
+        director = directors[0] if directors else None
+        starring = [c["name"] for c in cast[:8]]
+
+    # Trailer from videos
+    trailer_url = None
+    if videos := data.get("videos"):
+        for v in (videos.get("results") or []):
+            if v.get("site") == "YouTube" and v.get("type") == "Trailer":
+                trailer_url = f"https://www.youtube.com/watch?v={v['key']}"
+                break
+
+    # Genre
+    genres = data.get("genres") or []
+    genre_str = ", ".join(g["name"] for g in genres) if genres else None
+
+    # Image URLs
+    poster_path = data.get("poster_path")
+    backdrop_path = data.get("backdrop_path")
+    poster_url = f"{settings.tmdb_image_base_url}{poster_path}" if poster_path else None
+    banner_url = f"{settings.tmdb_image_base_url}{backdrop_path}" if backdrop_path else None
+
+    runtime = data.get("runtime") or 0
+
+    return {
+        "title": data.get("title", ""),
+        "synopsis": data.get("overview"),
+        "release_date": release_date_str,
+        "runtime_minutes": runtime,
+        "duration_minutes": runtime + 15,  # add 15 min for ads
+        "credits_duration_minutes": 5,
+        "imdb_score": data.get("vote_average"),
+        "rating_count": data.get("vote_count"),
+        "genre": genre_str,
+        "director": director,
+        "starring": starring,
+        "poster_url": poster_url,
+        "banner_url": banner_url,
+        "trailer_url": trailer_url,
+        "release_status": release_status,
+        "content_rating": "",
+        "is_active": True,
+    }
 
 
 @router.post("/movies", response_model=Movie, status_code=201)
