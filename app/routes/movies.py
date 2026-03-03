@@ -3,6 +3,7 @@ from typing import Optional
 from datetime import date, timedelta, datetime
 
 from app.crud.movie import CRUDMovie
+from app.crud.showtime import CRUDShowtime
 from app.schemas.movie import (
     MovieListResponse, MovieSummary, MovieDetail,
     MovieShowtimesResponse, ShowtimeCard,
@@ -13,8 +14,8 @@ from app.core.exceptions import NotFoundException
 from app.core.calculations import calc_raqs, calc_ttc
 
 router = APIRouter(prefix="/api/v1/movies", tags=["movies"])
-crud_movie = CRUDMovie(supabase_admin)
-
+crude_movie = CRUDMovie(supabase_admin)
+crude_showtime = CRUDShowtime(supabase_admin)
 
 def _build_showtime_card(
     st: dict,
@@ -42,13 +43,12 @@ def _build_showtime_card(
         theatre_name=f"Theatre {theatre_id}" if theatre_id else None,
         start_time=start_time_str,
         end_time=end_time_str,
-        format=st.get("format"),
         language=st.get("language"),
         available_seats=st.get("available_seats"),
         total_seats=st.get("total_seats"),
-        ticket_price_normal=st.get("ticket_price_normal") or st.get("base_price"),
-        ticket_price_student=st.get("ticket_price_student"),
-        ticket_price_member=st.get("ticket_price_member"),
+        base_price=st.get("base_price") or 0.0,
+        student_discount_baht=st.get("student_discount_baht"),
+        member_discount_baht=st.get("member_discount_baht"),
         total_time_commitment_minutes=ttc,
         risk_adjusted_quality_score=raqs,
     )
@@ -63,7 +63,7 @@ async def list_movies(
     status: Optional[str] = Query(None, alias="release_status")
 ):
     """Browse movies with optional release_, genre, and title-search filters."""
-    rows, total = await crud_movie.get_multi(
+    rows, total = await crude_movie.get_multi(
         page=page, limit=limit, release_status=status, active_only=True
     )
     return MovieListResponse(
@@ -76,7 +76,7 @@ async def list_movies(
 @router.get("/{movie_id}", response_model=MovieDetail)
 async def get_movie(movie_id: int):
     """Get full movie detail."""
-    movie = await crud_movie.get_by_id(movie_id)
+    movie = await crude_movie.get_by_id(movie_id)
     if not movie:
         raise NotFoundException("Movie", str(movie_id))
     return movie
@@ -89,19 +89,26 @@ async def get_movie_showtimes(
         None, alias="date", description="Start date YYYY-MM-DD (default: today)"
     ),
     days: int = Query(7, ge=1, le=30, description="Number of days to include"),
+    active: Optional[bool] = Query(None, description="Filter by active status (true/false/null for all)"),
 ):
-    """Get showtimes for a movie grouped by date, each with TTC and RAQS."""
-    movie = await crud_movie.get_by_id(movie_id)
+    """Get showtimes for a movie grouped by date, each with TTC and RAQS.
+
+    Query Parameters:
+        active: None (all showtimes), true (active only), false (inactive only)
+    """
+    movie = await crude_movie.get_by_id(movie_id)
     if not movie:
         raise NotFoundException("Movie", str(movie_id))
 
     start = date_from or date.today()
     end = start + timedelta(days=days - 1)
 
-    raw = await crud_movie.get_showtimes_for_movie(
+    # Use optimized CRUD method that filters at database level
+    raw = await crude_showtime.get_showtimes_by_movie_and_date(
         movie_id=movie_id,
         from_date=start.isoformat(),
         to_date=f"{end.isoformat()}T23:59:59",
+        is_active=active,
     )
 
     # RAQS is per-movie (same for every showtime card)
@@ -135,7 +142,7 @@ async def get_movie_showtimes(
 @router.get("/{movie_id}/quality-score", response_model=QualityScoreResponse)
 async def get_movie_quality_score(movie_id: int):
     """Get the Risk-Adjusted Quality Score for a movie with breakdown."""
-    movie = await crud_movie.get_by_id(movie_id)
+    movie = await crude_movie.get_by_id(movie_id)
     if not movie:
         raise NotFoundException("Movie", str(movie_id))
 
@@ -171,6 +178,20 @@ async def get_movie_quality_score(movie_id: int):
             recency_factor=recency,
         ),
     )
+
+
+@router.get("/bulk/all-active-showtimes")
+async def get_all_active_showtimes(
+    active: Optional[bool] = Query(None, description="Filter by active status (true/false/null for all)"),
+):
+    """Get ALL showtimes for bulk fetch (mobile/frontend filtering).
+    Returns all showtimes - frontend filters by movie_id, date range, etc.
+
+    Query Parameters:
+        active: None (all showtimes), true (active only), false (inactive only)
+    """
+    showtimes = await crude_showtime.get_all_active_showtimes(is_active=active)
+    return {"showtimes": showtimes, "total": len(showtimes)}
 
 
 # ── Admin endpoints ───────────────────────────────────────────────────────────

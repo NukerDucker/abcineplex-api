@@ -1,4 +1,4 @@
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel
 from datetime import date, datetime
 from typing import List, Optional, Any
 
@@ -118,13 +118,12 @@ class ShowtimeCard(BaseModel):
     theatre_name: Optional[str] = None
     start_time: Optional[str] = None
     end_time: Optional[str] = None
-    format: Optional[str] = None
     language: Optional[str] = None
     available_seats: Optional[int] = None
     total_seats: Optional[int] = None
-    ticket_price_normal: Optional[float] = None
-    ticket_price_student: Optional[float] = None
-    ticket_price_member: Optional[float] = None
+    base_price: float = 0.0
+    student_discount_baht: Optional[float] = None
+    member_discount_baht: Optional[float] = None
     total_time_commitment_minutes: int
     risk_adjusted_quality_score: float
 
@@ -133,7 +132,6 @@ class MovieShowtimesResponse(BaseModel):
     movie_id: int
     showtimes_by_date: dict[str, List[ShowtimeCard]]
     furthest_available_date: Optional[str] = None
-
 
 # Kept for backward compat with admin movie routes
 class Movie(MovieDetail):

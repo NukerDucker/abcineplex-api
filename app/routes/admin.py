@@ -12,8 +12,10 @@ from app.crud.booking import CRUDBooking
 from app.crud.user import CRUDUser
 from app.crud.public import CRUDPublic
 from app.crud.theatre import CRUDTheatre, CRUDSeat
+from app.crud.showtime_seat import CRUDShowtimeSeat
 from app.schemas.movie import Movie, MovieCreate, MovieUpdate
 from app.schemas.showtime import Showtime, ShowtimeCreate, ShowtimeUpdate
+from app.schemas.showtime_seat import ShowtimeSeat, ShowtimeSeatCreate, ShowtimeSeatUpdate
 from app.schemas.user import AdminUserResponse, AdminUserUpdate
 from app.schemas.public import HeroSlide, HeroSlideCreate, HeroSlideUpdate, Promotion, PromotionCreate, PromotionUpdate
 from app.schemas.theatre import Theatre, TheatreCreate, TheatreUpdate, Seat, SeatCreate, SeatUpdate
@@ -39,6 +41,7 @@ crud_user = CRUDUser(supabase_admin)
 crud_public = CRUDPublic(supabase_admin)
 crud_theatre = CRUDTheatre(supabase_admin)
 crud_seat = CRUDSeat(supabase_admin)
+crud_showtime_seat = CRUDShowtimeSeat(supabase_admin)
 
 
 # ========== Dashboard ==========
@@ -204,6 +207,16 @@ async def delete_admin_movie(movie_id: int):
 async def create_admin_showtime(showtime: ShowtimeCreate):
     """Create a new showtime for a movie"""
     try:
+        # Validate required fields
+        if not showtime.movie_id or showtime.movie_id == 0:
+            raise ValueError("movie_id is required and must be greater than 0")
+        if not showtime.theatre_id or showtime.theatre_id == 0:
+            raise ValueError("theatre_id is required and must be greater than 0")
+        if not showtime.start_time:
+            raise ValueError("start_time is required")
+        if showtime.base_price <= 0:
+            raise ValueError("base_price must be greater than 0")
+        
         return await crud_showtime.create(showtime)
     except ValueError as e:
         raise HTTPException(
@@ -554,4 +567,77 @@ async def delete_seat(theatre_id: int, seat_id: int):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to delete seat"
+        )
+
+
+# ========== Showtime Seat Management ==========
+
+@router.get("/showtimes/{showtime_id}/seats", response_model=List[ShowtimeSeat])
+async def list_showtime_seats(showtime_id: int):
+    """
+    List all seat configurations for a specific showtime.
+    Returns which seats are available/blocked for booking in this showtime.
+    """
+    try:
+        # Verify showtime exists
+        showtime = await crud_showtime.get_by_id(showtime_id)
+        if not showtime:
+            raise NotFoundException("Showtime", showtime_id)
+
+        seats = await crud_showtime_seat.get_by_showtime(showtime_id)
+        return seats
+    except NotFoundException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching seats for showtime {showtime_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to fetch showtime seats"
+        )
+
+
+@router.patch("/showtimes/{showtime_id}/seats/batch", response_model=List[ShowtimeSeat])
+async def update_showtime_seats_batch(showtime_id: int, seat_configs: dict):
+    """
+    Batch update seat availability for a showtime.
+
+    Request body: {"seat_id_1": true, "seat_id_2": false, ...}
+    where true = available for booking, false = blocked
+    """
+    try:
+        # Verify showtime exists
+        showtime = await crud_showtime.get_by_id(showtime_id)
+        if not showtime:
+            raise NotFoundException("Showtime", showtime_id)
+
+        # Convert string keys to integers
+        seat_configs_int = {int(k): v for k, v in seat_configs.items()}
+
+        updated = await crud_showtime_seat.update_batch(showtime_id, seat_configs_int)
+        return updated
+    except NotFoundException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating seats for showtime {showtime_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update showtime seats"
+        )
+
+
+@router.patch("/showtime-seats/{showtime_seat_id}", response_model=ShowtimeSeat)
+async def update_single_showtime_seat(showtime_seat_id: int, update: ShowtimeSeatUpdate):
+    """Update a single showtime seat configuration"""
+    try:
+        updated = await crud_showtime_seat.update(showtime_seat_id, update)
+        if not updated:
+            raise NotFoundException("ShowtimeSeat", showtime_seat_id)
+        return updated
+    except NotFoundException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating showtime seat {showtime_seat_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update showtime seat"
         )

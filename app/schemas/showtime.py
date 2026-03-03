@@ -12,10 +12,8 @@ class ShowtimeCreate(BaseModel):
     base_price: float = Field(..., ge=0)
     audio_language: Optional[str] = None
     subtitle_language: Optional[str] = None
-    format: Optional[str] = None
-    ticket_price_normal: Optional[float] = None
-    ticket_price_student: Optional[float] = None
-    ticket_price_member: Optional[float] = None
+    student_discount_baht: Optional[float] = Field(None, ge=0)
+    member_discount_baht: Optional[float] = Field(None, ge=0)
 
 
 class ShowtimeUpdate(BaseModel):
@@ -27,10 +25,8 @@ class ShowtimeUpdate(BaseModel):
     audio_language: Optional[str] = None
     subtitle_language: Optional[str] = None
     language: Optional[str] = None
-    format: Optional[str] = None
-    ticket_price_normal: Optional[float] = None
-    ticket_price_student: Optional[float] = None
-    ticket_price_member: Optional[float] = None
+    student_discount_baht: Optional[float] = Field(None, ge=0)
+    member_discount_baht: Optional[float] = Field(None, ge=0)
 
 
 class Showtime(BaseModel):
@@ -44,10 +40,11 @@ class Showtime(BaseModel):
     audio_language: Optional[str] = None
     subtitle_language: Optional[str] = None
     language: Optional[str] = None
-    format: Optional[str] = None
-    ticket_price_normal: Optional[float] = None
-    ticket_price_student: Optional[float] = None
+    student_discount_baht: Optional[float] = None
+    member_discount_baht: Optional[float] = None
+    is_active: Optional[bool] = None
     created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True
@@ -66,10 +63,10 @@ class TheatreRef(BaseModel):
     name: str
 
 
-class TicketPrices(BaseModel):
-    normal: Optional[float] = None
-    student: Optional[float] = None
-    member: Optional[float] = None
+class PricingInfo(BaseModel):
+    base_price: float = 0.0
+    student_discount_baht: Optional[float] = None
+    member_discount_baht: Optional[float] = None
 
 
 class ShowtimeDetail(BaseModel):
@@ -80,11 +77,12 @@ class ShowtimeDetail(BaseModel):
     start_time: Optional[datetime] = None
     end_time: Optional[datetime] = None
     estimated_end_with_credits: Optional[datetime] = None
-    format: Optional[str] = None
     language: Optional[str] = None
     available_seats: Optional[int] = None
     total_seats: Optional[int] = None
-    ticket_prices: TicketPrices = Field(default_factory=TicketPrices)
+    base_price: float = 0.0
+    student_discount_baht: Optional[float] = None
+    member_discount_baht: Optional[float] = None
     total_time_commitment_minutes: int = 0
     risk_adjusted_quality_score: float = 0.0
 
@@ -104,9 +102,7 @@ class SeatInMap(BaseModel):
     seat_id: int
     row_label: str
     seat_number: int
-    seat_type: str = "standard"
     status: str  # available | held | booked | disabled
-
 
 class SeatLayout(BaseModel):
     rows: List[str]

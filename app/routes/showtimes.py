@@ -9,7 +9,7 @@ from app.crud.showtime import CRUDShowtime
 from app.crud.booking import CRUDBooking
 from app.schemas.showtime import (
     Showtime, ShowtimeCreate, ShowtimeUpdate,
-    ShowtimeDetail, MovieRef, TheatreRef, TicketPrices,
+    ShowtimeDetail, MovieRef, TheatreRef,
     SeatMapResponse, SeatLayout, SeatInMap,
     TimeCommitmentResponse, TTCComponents,
 )
@@ -91,15 +91,12 @@ async def get_showtime(showtime_id: int):
         start_time=start_dt,
         end_time=end_dt,
         estimated_end_with_credits=end_credits_dt,
-        format=raw.get("format"),
         language=raw.get("language"),
         available_seats=available,
         total_seats=raw.get("total_seats"),
-        ticket_prices=TicketPrices(
-            normal=raw.get("ticket_price_normal") or raw.get("base_price"),
-            student=raw.get("ticket_price_student"),
-            member=raw.get("ticket_price_member"),
-        ),
+        base_price=raw.get("base_price") or 0.0,
+        student_discount_baht=raw.get("student_discount_baht"),
+        member_discount_baht=raw.get("member_discount_baht"),
         total_time_commitment_minutes=ttc,
         risk_adjusted_quality_score=raqs,
     )
@@ -131,7 +128,6 @@ async def get_showtime_seats(showtime_id: int):
             seat_id=s["id"],
             row_label=s["row_label"],
             seat_number=s["seat_number"],
-            seat_type=s.get("seat_type") or "standard",
             status=s.get("status", "available"),
         ))
 
@@ -171,9 +167,9 @@ async def hold_seats(
 
     # Use student price when ticket_type is 'student', fall back to normal
     if body.ticket_type == 'student':
-        price = float(showtime.get("ticket_price_student") or showtime.get("ticket_price_normal") or showtime.get("base_price") or 0)
+        price = float(showtime.get("base_price") or 0) - float(showtime.get("student_discount_baht") or 0)
     else:
-        price = float(showtime.get("ticket_price_normal") or showtime.get("base_price") or 0)
+        price = float(showtime.get("base_price") or 0)
 
     req = ReserveSeatRequest(
         showtime_id=showtime_id,

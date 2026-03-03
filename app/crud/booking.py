@@ -35,10 +35,36 @@ class CRUDBooking:
         else:
             return {}
 
+    async def _is_showtime_active(self, showtime_id: int) -> bool:
+        """Check if a showtime is still active (not expired)."""
+        try:
+            response = await asyncio.to_thread(
+                lambda: self.client.table('showtimes')
+                    .select('is_active')
+                    .eq('id', showtime_id)
+                    .maybe_single()
+                    .execute()
+            )
+            showtime = response.data if response and response.data else None
+            if not showtime:
+                logger.warning(f"Showtime {showtime_id} not found")
+                return False
+            return bool(showtime.get('is_active', False))
+        except Exception as e:
+            logger.error(f"Error checking showtime {showtime_id} active status: {e}")
+            return False
+
     # ── Write operations (via RPC) ────────────────────────────
 
     async def reserve_seats(self, request: ReserveSeatRequest, user_id: str) -> Dict[str, Any]:
         """Create a pending booking with a 5-minute hold. Atomic — no race conditions."""
+        # Validate that the showtime is still active (not expired more than 40 min ago)
+        if not await self._is_showtime_active(request.showtime_id):
+            return {
+                "success": False,
+                "error": "This showtime has expired and is no longer available for booking",
+            }
+
         return await self._rpc("reserve_seats", {
             "p_user_id":        str(user_id),
             "p_showtime_id":    request.showtime_id,
@@ -176,11 +202,11 @@ class CRUDBooking:
         limit: int = 100,
         offset: int = 0,
     ) -> List[Dict[str, Any]]:
-        """Admin: list all bookings with enriched info (movie title, seats, payment data)."""
+        """Admin: list all bookings with enriched info from booking_details view."""
         try:
             def _fetch():
                 q = (
-                    self.client.from_("bookings")
+                    self.client.from_("booking_details")
                     .select("*")
                     .order("created_at", desc=True)
                     .limit(limit)
@@ -192,33 +218,6 @@ class CRUDBooking:
 
             res = await asyncio.to_thread(_fetch)
             rows: List[Dict[str, Any]] = res.data or []
-
-            if not rows:
-                return rows
-
-            # Batch-fetch payment data and merge into each row
-            booking_ids = [r["id"] for r in rows if r.get("id")]
-            if booking_ids:
-                pay_res = await asyncio.to_thread(
-                    lambda: self.client.table("payments")
-                        .select("booking_id, paid_at, payment_method, status")
-                        .in_("booking_id", booking_ids)
-                        .order("created_at", desc=True)
-                        .execute()
-                )
-                # Keep only the latest payment per booking
-                pay_map: Dict[str, Dict[str, Any]] = {}
-                for p in (pay_res.data or []):
-                    bid = p.get("booking_id")
-                    if bid and bid not in pay_map:
-                        pay_map[bid] = p
-
-                for r in rows:
-                    pay = pay_map.get(str(r.get("id", "")))
-                    r["paid_at"] = pay["paid_at"] if pay else None
-                    r["payment_method"] = pay["payment_method"] if pay else None
-                    r["payment_status"] = pay["status"] if pay else None
-
             return rows
         except Exception as e:
             logger.error(f"get_all_bookings error: {e}")

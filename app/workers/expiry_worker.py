@@ -1,8 +1,8 @@
 """
 Expiry Worker
-Automatically releases expired seat reservations every minute.
-This worker calls the release_expired_reservations function to free up seats
-that have been reserved for more than 5 minutes without payment.
+Automatically releases expired seat reservations and deactivates past showtimes.
+- Releases seat reservations held for more than 5 minutes without payment
+- Deactivates showtimes where start_time + 40 minutes has passed (no late bookings)
 """
 import asyncio
 import logging
@@ -40,18 +40,51 @@ async def release_expired_task():
         raise
 
 
+async def deactivate_expired_showtimes_task():
+    """Task to deactivate showtimes that started more than 40 minutes ago"""
+    try:
+        logger.info("Checking for expired showtimes...")
+
+        # Call database function (atomic, efficient)
+        result = await asyncio.to_thread(
+            lambda: supabase.rpc('deactivate_expired_showtimes').execute()
+        )
+
+        data = result.data if result and result.data else {}
+        deactivated_count = data.get('deactivated_count', 0)
+        deactivated_ids = data.get('showtime_ids', [])
+
+        if deactivated_count > 0:
+            logger.info(f"✅ Deactivated {deactivated_count} expired showtime(s)")
+            logger.info(f"   Showtime IDs: {deactivated_ids}")
+        else:
+            logger.info("No expired showtimes found")
+
+        return data
+
+    except Exception as e:
+        logger.error(f"❌ Error deactivating expired showtimes: {e}")
+        raise
+
+
 async def run_worker(interval_seconds: int = 60):
     """
     Run the expiry worker in an infinite loop.
+    Runs both seat release and showtime deactivation tasks.
 
     Args:
-        interval_seconds: How often to check for expired reservations (default: 60 seconds)
+        interval_seconds: How often to check for expirations (default: 60 seconds)
     """
     logger.info(f"Expiry worker started - checking every {interval_seconds} seconds")
 
     while True:
         try:
+            # Release expired seat reservations
             await release_expired_task()
+
+            # Deactivate expired showtimes (ran 40+ minutes ago)
+            await deactivate_expired_showtimes_task()
+
         except Exception as e:
             logger.error(f"Worker error: {e}")
 

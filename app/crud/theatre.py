@@ -18,7 +18,35 @@ class CRUDTheatre:
         response = await asyncio.to_thread(
             lambda: self.client.table("theatres").insert(data).execute()
         )
-        return response.data[0]
+        theatre_record = response.data[0]
+        theatre_id = theatre_record['id']
+
+        # Auto-generate seat records for this theatre
+        layout = data.get('layout_json', {})
+        rows = layout.get('rows', 8)
+        columns = layout.get('columns', 15)
+
+        seats_data = []
+        for row_idx in range(rows):
+            row_label = chr(65 + row_idx)  # A, B, C, etc.
+            for col_idx in range(1, columns + 1):
+                seats_data.append({
+                    'theatre_id': theatre_id,
+                    'row_label': row_label,
+                    'seat_number': col_idx,
+                    'is_active': True
+                })
+
+        if seats_data:
+            try:
+                await asyncio.to_thread(
+                    lambda: self.client.table("seats").insert(seats_data).execute()
+                )
+                logger.info(f"Created {len(seats_data)} seats for theatre {theatre_id}")
+            except Exception as e:
+                logger.error(f"Failed to create seats for theatre {theatre_id}: {e}")
+
+        return theatre_record
 
     async def update(self, theatre_id: int, theatre_in: TheatreUpdate) -> Optional[dict]:
         data = theatre_in.model_dump(exclude_unset=True, mode='json')

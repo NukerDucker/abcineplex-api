@@ -313,13 +313,17 @@ async def change_showtime(
     # Verify new showtime exists and is in the future
     new_st_res = await asyncio.to_thread(
         lambda: supabase_admin.table("showtimes")
-            .select("id, start_time, ticket_price_normal")
+            .select("id, start_time, base_price, is_active")
             .eq("id", body.new_showtime_id)
             .maybe_single()
             .execute()
     )
     if not new_st_res.data:
         raise HTTPException(status_code=404, detail="New showtime not found")
+
+    # Check if new showtime is still active (not expired more than 40 min ago)
+    if not new_st_res.data.get("is_active", False):
+        raise HTTPException(status_code=400, detail="New showtime has expired and is no longer available")
 
     old_showtime_id = b["showtime_id"]
     update_data = {

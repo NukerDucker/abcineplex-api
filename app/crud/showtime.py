@@ -99,7 +99,37 @@ class CRUDShowtime:
         response = await asyncio.to_thread(
             lambda: self.client.table("showtimes").insert(data).execute()
         )
-        return response.data[0]
+        showtime_record = response.data[0]
+
+        # Auto-populate showtime_seats for all theatre seats
+        try:
+            # Fetch all seats for this theatre
+            seats_response = await asyncio.to_thread(
+                lambda: self.client.table("seats")
+                    .select("id")
+                    .eq("theatre_id", showtime.theatre_id)
+                    .execute()
+            )
+            seat_ids = [row['id'] for row in (seats_response.data or [])]
+
+            if seat_ids:
+                showtime_seats_data = [
+                    {
+                        "showtime_id": showtime_record['id'],
+                        "seat_id": seat_id,
+                        "is_available": True
+                    }
+                    for seat_id in seat_ids
+                ]
+
+                await asyncio.to_thread(
+                    lambda: self.client.table("showtime_seats").insert(showtime_seats_data).execute()
+                )
+                logger.info(f"Created {len(showtime_seats_data)} showtime seats for showtime {showtime_record['id']}")
+        except Exception as e:
+            logger.error(f"Failed to create showtime_seats for showtime {showtime_record['id']}: {e}")
+
+        return showtime_record
 
     async def update(self, showtime_id: int, showtime_in: ShowtimeUpdate) -> Optional[dict]:
         """Update showtime with fallback"""
@@ -123,14 +153,62 @@ class CRUDShowtime:
         return bool(response.data)
 
     async def get_by_movie(self, movie_id: int) -> List[dict]:
-        """Get all showtimes for a movie"""
+        """Get all showtimes for a movie (all dates)"""
         response = await asyncio.to_thread(
             lambda: self.client.table("showtimes")
                 .select("*")
                 .eq("movie_id", movie_id)
+                .eq("is_active", True)
                 .order("start_time")
                 .execute()
         )
+        return response.data or []
+
+    async def get_all_active_showtimes(self, is_active: Optional[bool] = None) -> List[dict]:
+        """Get ALL showtimes from database (active or all).
+        Use for bulk operations or bulk filtering on frontend.
+
+        Args:
+            is_active: None = all showtimes, True = active only, False = inactive only
+        """
+        query = self.client.table("showtimes").select("*")
+
+        if is_active is not None:
+            query = query.eq("is_active", is_active)
+
+        query = query.gte("start_time", datetime.now(timezone.utc).isoformat())
+        query = query.order("start_time")
+
+        response = await asyncio.to_thread(lambda: query.execute())
+        return response.data or []
+
+    async def get_showtimes_by_movie_and_date(
+        self,
+        movie_id: int,
+        from_date: str,
+        to_date: str,
+        is_active: Optional[bool] = True,
+    ) -> List[dict]:
+        """Optimized: Get showtimes for movie within date range.
+        All filtering done at database level.
+
+        Args:
+            movie_id: Movie ID to filter by
+            from_date: Start date (ISO format string)
+            to_date: End date (ISO format string)
+            is_active: None = all showtimes, True = active only, False = inactive only (default: True)
+        """
+        query = self.client.table("showtimes").select("*")
+        query = query.eq("movie_id", movie_id)
+
+        if is_active is not None:
+            query = query.eq("is_active", is_active)
+
+        query = query.gte("start_time", from_date)
+        query = query.lte("start_time", to_date)
+        query = query.order("start_time")
+
+        response = await asyncio.to_thread(lambda: query.execute())
         return response.data or []
 
     async def get_by_id(self, showtime_id: int) -> Optional[dict]:
@@ -269,7 +347,6 @@ class CRUDShowtime:
                 "id": sid,
                 "row_label": str(seat["row_label"]).strip(),
                 "seat_number": int(seat["seat_number"]),
-                "seat_type": str(seat.get("seat_type") or "standard"),
                 "status": computed,
             })
 
