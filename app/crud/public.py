@@ -19,19 +19,33 @@ class CRUDPublic:
         )
         return response.data[0]
 
+    async def get_hero_slide(self, slide_id: str) -> Optional[dict]:
+        """Get hero slide by ID"""
+        response = await asyncio.to_thread(
+            lambda: self.client.table("hero_carousel")
+                .select("*")
+                .eq("id", slide_id)
+                .maybe_single()
+                .execute()
+        )
+        return response.data
+
     async def update_hero_slide(self, slide_id: str, slide_in: HeroSlideUpdate) -> Optional[dict]:
-        """Update hero slide with fallback to get by ID"""
+        """Update hero slide and fetch updated record"""
         data = slide_in.model_dump(exclude_unset=True, mode='json')
         if not data:
-            return None
+            return await self.get_hero_slide(slide_id)
 
-        response = await asyncio.to_thread(
+        # Execute update
+        await asyncio.to_thread(
             lambda: self.client.table("hero_carousel")
                 .update(data)
                 .eq("id", slide_id)
                 .execute()
         )
-        return response.data[0] if response.data else None
+
+        # Fetch and return updated record
+        return await self.get_hero_slide(slide_id)
 
     async def delete_hero_slide(self, slide_id: str) -> bool:
         """Delete hero slide"""
@@ -59,21 +73,33 @@ class CRUDPublic:
         )
         return response.data[0]
 
-    async def update_promotion(self, promo_id: str, promo_in: PromotionUpdate) -> Optional[dict]:
-        """Update promotion with fallback"""
-        data = promo_in.model_dump(exclude_unset=True, mode='json')
-        if not data:
-            return None
-
+    async def get_promotion(self, promo_id: str) -> Optional[dict]:
+        """Get promotion by ID"""
         response = await asyncio.to_thread(
             lambda: self.client.table("promotions")
-                .update(data)
+                .select("*")
                 .eq("id", promo_id)
-                .select()
                 .maybe_single()
                 .execute()
         )
         return response.data
+
+    async def update_promotion(self, promo_id: str, promo_in: PromotionUpdate) -> Optional[dict]:
+        """Update promotion and fetch updated record"""
+        data = promo_in.model_dump(exclude_unset=True, mode='json')
+        if not data:
+            return await self.get_promotion(promo_id)
+
+        # Execute update
+        await asyncio.to_thread(
+            lambda: self.client.table("promotions")
+                .update(data)
+                .eq("id", promo_id)
+                .execute()
+        )
+
+        # Fetch and return updated record
+        return await self.get_promotion(promo_id)
 
     async def delete_promotion(self, promo_id: str) -> bool:
         """Delete promotion"""

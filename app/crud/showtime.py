@@ -269,12 +269,12 @@ class CRUDShowtime:
         """Get seat map with per-showtime availability.
 
         Status is computed dynamically:
-          - disabled : seat.is_active == false
+          - disabled : seat.is_active == false OR showtime_seats.is_available == false
           - booked   : linked to a confirmed booking for THIS showtime
           - held     : linked to a pending booking for THIS showtime
           - available: everything else
         """
-        # 1. All seats in this theatre
+        # 1. All seats in this theatre with their showtime-specific availability
         seats_resp = await asyncio.to_thread(
             lambda: self.client.table("seats")
                 .select("id, row_label, seat_number, is_active")
@@ -285,7 +285,19 @@ class CRUDShowtime:
         )
         all_seats: List[Dict[str, Any]] = cast(List[Dict[str, Any]], seats_resp.data or [])
 
-        # 2. Active bookings (pending + confirmed) for this specific showtime
+        # 2. Get showtime_seats for this specific showtime
+        showtime_seats_resp = await asyncio.to_thread(
+            lambda: self.client.table("showtime_seats")
+                .select("seat_id, is_available")
+                .eq("showtime_id", showtime_id)
+                .execute()
+        )
+        showtime_seats_data: List[Dict[str, Any]] = cast(List[Dict[str, Any]], showtime_seats_resp.data or [])
+        showtime_seat_availability: dict[int, bool] = {
+            int(ss["seat_id"]): bool(ss["is_available"]) for ss in showtime_seats_data
+        }
+
+        # 3. Active bookings (pending + confirmed) for this specific showtime
         bookings_resp = await asyncio.to_thread(
             lambda: self.client.table("bookings")
                 .select("id, booking_status, payment_deadline")
@@ -312,7 +324,7 @@ class CRUDShowtime:
         confirmed_ids: set[str] = {str(b["id"]) for b in bookings if b["booking_status"] == "confirmed"}
         all_booking_ids: List[str] = list(pending_ids | confirmed_ids)
 
-        # 3. Which seats belong to those bookings
+        # 4. Which seats belong to those bookings
         held_seat_ids: set[int] = set()
         booked_seat_ids: set[int] = set()
         if all_booking_ids:
@@ -330,11 +342,15 @@ class CRUDShowtime:
                 elif booking_id in pending_ids:
                     held_seat_ids.add(seat_id)
 
-        # 4. Build result with computed status
+        # 5. Build result with computed status
         result: List[Dict[str, Any]] = []
         for seat in all_seats:
             sid = int(seat["id"])
-            if not seat.get("is_active", True):
+            # Check all disable conditions
+            is_seat_disabled = not seat.get("is_active", True)
+            is_showtime_unavailable = not showtime_seat_availability.get(sid, True)
+
+            if is_seat_disabled or is_showtime_unavailable:
                 computed = "disabled"
             elif sid in booked_seat_ids:
                 computed = "booked"

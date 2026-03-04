@@ -89,12 +89,12 @@ async def get_movie_showtimes(
         None, alias="date", description="Start date YYYY-MM-DD (default: today)"
     ),
     days: int = Query(7, ge=1, le=30, description="Number of days to include"),
-    active: Optional[bool] = Query(None, description="Filter by active status (true/false/null for all)"),
+    active: Optional[bool] = Query(True, description="Filter by active status (true = active only, false = inactive only, null = all)"),
 ):
     """Get showtimes for a movie grouped by date, each with TTC and RAQS.
 
     Query Parameters:
-        active: None (all showtimes), true (active only), false (inactive only)
+        active: true (active only - default), false (inactive only), null (all showtimes)
     """
     movie = await crude_movie.get_by_id(movie_id)
     if not movie:
@@ -104,6 +104,7 @@ async def get_movie_showtimes(
     end = start + timedelta(days=days - 1)
 
     # Use optimized CRUD method that filters at database level
+    # Default to active=True to hide inactive showtimes from customers
     raw = await crude_showtime.get_showtimes_by_movie_and_date(
         movie_id=movie_id,
         from_date=start.isoformat(),
@@ -182,13 +183,13 @@ async def get_movie_quality_score(movie_id: int):
 
 @router.get("/bulk/all-active-showtimes")
 async def get_all_active_showtimes(
-    active: Optional[bool] = Query(None, description="Filter by active status (true/false/null for all)"),
+    active: Optional[bool] = Query(True, description="Filter by active status (true = active only, false = inactive only, null = all)"),
 ):
     """Get ALL showtimes for bulk fetch (mobile/frontend filtering).
-    Returns all showtimes - frontend filters by movie_id, date range, etc.
+    Returns active showtimes by default - frontend filters by movie_id, date range, etc.
 
     Query Parameters:
-        active: None (all showtimes), true (active only), false (inactive only)
+        active: true (active only - default), false (inactive only), null (all showtimes)
     """
     showtimes = await crude_showtime.get_all_active_showtimes(is_active=active)
     return {"showtimes": showtimes, "total": len(showtimes)}

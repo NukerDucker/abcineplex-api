@@ -134,8 +134,23 @@ async def confirm_payment(
     # Estimate points earned: 1 pt per 10 baht (rounded)
     points_earned = max(1, int(record["amount"] / 10))
 
-    # EP08-UC001 & EP08-UC003: Persist points + increment attendance streak
+    # Calculate final amount paid after points discount
+    points_discount = min(request.points_redeemed, int(record["amount"]))
+    final_amount_paid = max(0, record["amount"] - points_discount)
+
+    # EP08-UC001 & EP08-UC003: Persist points + increment attendance streak + update booking with final amount
     try:
+        # Update booking with points redeemed and final amount paid
+        await asyncio.to_thread(
+            lambda: supabase_admin.table("bookings")
+                .update({
+                    "points_redeemed": request.points_redeemed,
+                    "final_amount_paid": final_amount_paid,
+                })
+                .eq("id", booking_id)
+                .execute()
+        )
+
         user_res = await asyncio.to_thread(
             lambda: supabase_admin.table("users")
                 .select("loyalty_points, attendance_streak")
@@ -156,7 +171,7 @@ async def confirm_payment(
                     .execute()
             )
     except Exception as e:
-        logger.warning(f"Could not update loyalty points/streak: {e}")
+        logger.warning(f"Could not update loyalty points/streak/booking: {e}")
 
     logger.info(f"Payment {payment_id} confirmed for booking {booking_id}")
     return PaymentConfirmResponse(
