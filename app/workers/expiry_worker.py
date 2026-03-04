@@ -4,6 +4,7 @@ Automatically releases expired seat reservations and deactivates past showtimes.
 - Releases seat reservations held for more than 5 minutes without payment
 - Deactivates showtimes where start_time + 40 minutes has passed (no late bookings)
 """
+
 import asyncio
 import logging
 from datetime import datetime
@@ -12,12 +13,12 @@ from app.core.supabase import supabase
 
 # Setup logging
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
 
 crud_booking = CRUDBooking(supabase)
+
 
 async def release_expired_task():
     """Task to release expired reservations"""
@@ -25,9 +26,9 @@ async def release_expired_task():
         logger.info("Starting expiry check...")
         result = await crud_booking.release_expired_reservations()
 
-        released_count = result.get('released_count', 0)
+        released_count = result.get("released_count", 0)
         if released_count > 0:
-            booking_ids = result.get('booking_ids', [])
+            booking_ids = result.get("booking_ids", [])
             logger.info(f"✅ Released {released_count} expired reservation(s)")
             logger.info(f"   Booking IDs: {booking_ids}")
         else:
@@ -47,13 +48,13 @@ async def deactivate_expired_showtimes_task():
 
         # Call database function (atomic, efficient)
         result = await asyncio.to_thread(
-            lambda: supabase.rpc('deactivate_expired_showtimes').execute()
+            lambda: supabase.rpc("deactivate_expired_showtimes", {}).execute()
         )
 
         data = result.data if result and result.data else {}
-        deactivated_count = data.get('deactivated_count', 0)
-        deactivated_ids = data.get('showtime_ids', [])
-
+        deactivated_count = data.get("deactivated_count", 0)
+        deactivated_ids = data.get("showtime_ids", [])
+        print(f"Full Response: {result}")
         if deactivated_count > 0:
             logger.info(f"✅ Deactivated {deactivated_count} expired showtime(s)")
             logger.info(f"   Showtime IDs: {deactivated_ids}")

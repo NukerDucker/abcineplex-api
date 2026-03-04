@@ -166,11 +166,10 @@ async def fetch_tmdb_movie(tmdb_id: int):
     genres = data.get("genres") or []
     genre_str = ", ".join(g["name"] for g in genres) if genres else None
 
-    # ── Image URLs ───────────────────────────────────────────────────────
     poster_path = data.get("poster_path")
     backdrop_path = data.get("backdrop_path")
-    poster_url = f"{settings.tmdb_image_base_url}{poster_path}" if poster_path else None
-    banner_url = f"{settings.tmdb_image_base_url}{backdrop_path}" if backdrop_path else None
+    poster_url = f"{settings.tmdb_image_base_url}w500{poster_path}" if poster_path else None
+    banner_url = f"{settings.tmdb_image_base_url}w500{backdrop_path}" if backdrop_path else None
     runtime = data.get("runtime") or 0
 
     print()

@@ -9,7 +9,7 @@ class Settings(BaseSettings):
     supabase_jwt_secret: str
     tmdb_api_key: Optional[str] = None
     tmdb_base_url: str = "https://api.themoviedb.org/3"
-    tmdb_image_base_url: str = "https://image.tmdb.org/t/p/original"
+    tmdb_image_base_url: str = "https://image.tmdb.org/t/p/"
     debug: bool = True
     cors_origins: list[str] = [
         "http://localhost:5173",
