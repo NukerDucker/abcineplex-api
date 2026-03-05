@@ -56,10 +56,10 @@ async def create_review(
 ):
     """Create a new review for a movie"""
     try:
-        # Add user info to review data
         review_data = review_in.model_dump()
         review_data["user_id"] = current_user.user_id
-        review_data["username"] = current_user.user_name or current_user.email.split("@")[0]
+        # username column removed from movie_reviews — user_name is now
+        # fetched via JOIN on users at read time (see CRUDReview._flatten_user)
 
         result = await crud_review.create(review_data, user_id=current_user.user_id)
 

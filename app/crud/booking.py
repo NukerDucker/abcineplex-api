@@ -32,16 +32,15 @@ class CRUDBooking:
             return response.data
         elif isinstance(response.data, (str, int, float, list)):
             return {"result": response.data}
-        else:
-            return {}
+        return {}
 
     async def _is_showtime_active(self, showtime_id: int) -> bool:
         """Check if a showtime is still active (not expired)."""
         try:
             response = await asyncio.to_thread(
-                lambda: self.client.table('showtimes')
-                    .select('is_active')
-                    .eq('id', showtime_id)
+                lambda: self.client.table("showtimes")
+                    .select("is_active")
+                    .eq("id", showtime_id)
                     .maybe_single()
                     .execute()
             )
@@ -49,7 +48,7 @@ class CRUDBooking:
             if not showtime:
                 logger.warning(f"Showtime {showtime_id} not found")
                 return False
-            return bool(showtime.get('is_active', False))
+            return bool(showtime.get("is_active", False))
         except Exception as e:
             logger.error(f"Error checking showtime {showtime_id} active status: {e}")
             return False
@@ -58,7 +57,6 @@ class CRUDBooking:
 
     async def reserve_seats(self, request: ReserveSeatRequest, user_id: str) -> Dict[str, Any]:
         """Create a pending booking with a 5-minute hold. Atomic — no race conditions."""
-        # Validate that the showtime is still active (not expired more than 40 min ago)
         if not await self._is_showtime_active(request.showtime_id):
             return {
                 "success": False,
@@ -120,7 +118,7 @@ class CRUDBooking:
                 return None
             data: Dict[str, Any] = dict(res.data)
 
-            # Attach tickets if confirmed
+            # Attach tickets if confirmed — each ticket now carries ticket_type
             if data.get("booking_status") == "confirmed":
                 tickets = await self.get_tickets_for_booking(booking_id)
                 data["tickets"] = tickets or None
@@ -140,9 +138,9 @@ class CRUDBooking:
             def _fetch():
                 q = (
                     self.client.from_("booking_details")
-                    .select("*")
-                    .eq("user_id", str(user_id))
-                    .order("created_at", desc=True)
+                        .select("*")
+                        .eq("user_id", str(user_id))
+                        .order("created_at", desc=True)
                 )
                 if status:
                     q = q.eq("booking_status", status)
@@ -155,7 +153,10 @@ class CRUDBooking:
             return []
 
     async def get_tickets_for_booking(self, booking_id: str) -> List[Dict[str, Any]]:
-        """All tickets for a booking, with seat labels."""
+        """
+        All tickets for a booking, with seat labels and ticket_type.
+        ticket_type now lives on the tickets row (migrated from bookings).
+        """
         try:
             res = await asyncio.to_thread(
                 lambda: self.client.table("tickets")
@@ -170,6 +171,7 @@ class CRUDBooking:
                     "ticket_id":    t["id"],
                     "booking_id":   t["booking_id"],
                     "seat_id":      t["seat_id"],
+                    "ticket_type":  t.get("ticket_type", "normal"),  # from tickets table
                     "price_paid":   t["price_paid"],
                     "qr_code_slug": t["qr_code_slug"],
                     "row_label":    seat.get("row_label", ""),
@@ -207,18 +209,17 @@ class CRUDBooking:
             def _fetch():
                 q = (
                     self.client.from_("booking_details")
-                    .select("*")
-                    .order("created_at", desc=True)
-                    .limit(limit)
-                    .offset(offset)
+                        .select("*")
+                        .order("created_at", desc=True)
+                        .limit(limit)
+                        .offset(offset)
                 )
                 if status:
                     q = q.eq("booking_status", status)
                 return q.execute()
 
             res = await asyncio.to_thread(_fetch)
-            rows: List[Dict[str, Any]] = res.data or []
-            return rows
+            return res.data or []
         except Exception as e:
             logger.error(f"get_all_bookings error: {e}")
             raise

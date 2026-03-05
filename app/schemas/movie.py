@@ -10,65 +10,65 @@ class MovieCreate(BaseModel):
     release_date: date
     imdb_score: Optional[float] = None
     content_rating: str
-    runtime_minutes: int
-    duration_minutes: int
+    runtime_minutes: int                    # TMDB film runtime (excluding credits)
+    duration_minutes: int                   # runtime_minutes + credits_duration_minutes (used for showtime end_time)
     director: Optional[str] = None
-    starring: Optional[List[str]] = []
+    starring: Optional[List[str]] = []      # written to movie_cast table
     synopsis: Optional[str] = None
     poster_url: Optional[str] = None
     banner_url: Optional[str] = None
     trailer_url: Optional[str] = None
-    audio_languages: Optional[List[str]] = []
-    subtitle_languages: Optional[List[str]] = []
+    audio_languages: Optional[List[str]] = []      # written to movie_audio_languages table
+    subtitle_languages: Optional[List[str]] = []   # written to movie_subtitle_languages table
     tag_event: Optional[str] = None
     release_status: str = "upcoming"
-    genre: Optional[str] = None
+    genre: Optional[List[str]] = []         # written to movie_genres table
     credits_duration_minutes: int
     is_active: bool = True
+
 
 class MovieUpdate(BaseModel):
     """All optional for partial updates (PATCH semantics)."""
     title: Optional[str] = None
     release_date: Optional[date] = None
     imdb_score: Optional[float] = None
-    duration_minutes: Optional[int] = None
+    runtime_minutes: Optional[int] = None   # TMDB film runtime (excluding credits)
+    duration_minutes: Optional[int] = None  # runtime_minutes + credits — recalculate if either changes
     content_rating: Optional[str] = None
     director: Optional[str] = None
-    starring: Optional[List[str]] = None
+    starring: Optional[List[str]] = None           # updates movie_cast table
     synopsis: Optional[str] = None
     poster_url: Optional[str] = None
     banner_url: Optional[str] = None
     trailer_url: Optional[str] = None
-    audio_languages: Optional[List[str]] = None
-    subtitle_languages: Optional[List[str]] = None
+    audio_languages: Optional[List[str]] = None    # updates movie_audio_languages table
+    subtitle_languages: Optional[List[str]] = None # updates movie_subtitle_languages table
     tag_event: Optional[str] = None
     release_status: Optional[str] = None
-    genre: Optional[str] = None
+    genre: Optional[List[str]] = None              # updates movie_genres table
     is_active: Optional[bool] = None
 
 
 # ── Spec-aligned public response schemas ──────────────────────────────────────
-
-def _genre_str(genre: Any) -> Optional[str]:
-    if isinstance(genre, list):
-        return ", ".join(genre) if genre else None
-    return genre or None
-
+# NOTE: starring, genre, audio_languages, subtitle_languages are stored in
+# separate join tables (movie_cast, movie_genres, movie_audio_languages,
+# movie_subtitle_languages). CRUDMovie._assemble() flattens them back before
+# returning — callers receive the same flat field names as before.
 
 class MovieSummary(BaseModel):
     """Lightweight row for GET /movies list."""
     id: int
     title: str
-    genre: Optional[str] = None
+    genre: Optional[List[str]] = None       # assembled from movie_genres join
     runtime_minutes: int = 0
     rating_tmdb: Optional[float] = None
-    starring: Optional[List[str]] = None
+    starring: Optional[List[str]] = None    # assembled from movie_cast join
     poster_url: Optional[str] = None
     banner_url: Optional[str] = None
     release_date: Optional[date] = None
     content_rating: Optional[str] = None
-    audio_languages: Optional[List[str]] = None
-    subtitle_languages: Optional[List[str]] = None
+    audio_languages: Optional[List[str]] = None    # assembled from movie_audio_languages join
+    subtitle_languages: Optional[List[str]] = None # assembled from movie_subtitle_languages join
     release_status: Optional[str] = None
     is_active: bool = True
 
@@ -81,20 +81,20 @@ class MovieDetail(BaseModel):
     id: int
     title: str
     synopsis: Optional[str] = None
-    genre: Optional[str] = None
-    duration_minutes: int = 0
-    runtime_minutes: int = 0
+    genre: Optional[List[str]] = None       # assembled from movie_genres join
+    runtime_minutes: int = 0               # TMDB film runtime (excluding credits)
+    duration_minutes: int = 0              # runtime_minutes + credits (used for end_time display)
     trailer_url: Optional[str] = None
     poster_url: Optional[str] = None
     banner_url: Optional[str] = None
-    starring: Optional[List[str]] = None
+    starring: Optional[List[str]] = None    # assembled from movie_cast join
     director: Optional[str] = None
     release_date: Optional[date] = None
     imdb_score: Optional[float] = None
     rating_count: Optional[int] = None
     content_rating: Optional[str] = None
-    audio_languages: Optional[List[str]] = None
-    subtitle_languages: Optional[List[str]] = None
+    audio_languages: Optional[List[str]] = None    # assembled from movie_audio_languages join
+    subtitle_languages: Optional[List[str]] = None # assembled from movie_subtitle_languages join
     credits_duration_minutes: int = 5
     release_status: Optional[str] = None
     is_active: bool = True
@@ -133,15 +133,15 @@ class MovieShowtimesResponse(BaseModel):
     showtimes_by_date: dict[str, List[ShowtimeCard]]
     furthest_available_date: Optional[str] = None
 
+
 # Kept for backward compat with admin movie routes
 class Movie(MovieDetail):
     pass
 
 
-# ── Unique Feature Schemas ───────────────────────────────────────────────────────
+# ── Unique Feature Schemas ────────────────────────────────────────────────────
 
 class RAQSBreakdown(BaseModel):
-    """Risk-Adjusted Quality Score calculation breakdown."""
     base_rating: float
     confidence_weight: float
     recency_factor: float
@@ -149,7 +149,6 @@ class RAQSBreakdown(BaseModel):
 
 
 class QualityScoreResponse(BaseModel):
-    """Movie quality score response with RAQS breakdown."""
     movie_id: int
     title: str
     rating_tmdb: float

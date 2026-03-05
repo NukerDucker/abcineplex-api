@@ -22,6 +22,8 @@ class ReviewResponse(BaseModel):
     id: int
     movie_id: int
     user_id: str
+    # username is no longer stored on movie_reviews — it is joined from
+    # users.user_name at read time by CRUDReview and surfaced here.
     username: Optional[str] = None
     review_text: Optional[str] = None
     rating: float
