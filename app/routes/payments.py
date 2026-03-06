@@ -120,7 +120,16 @@ async def _apply_loyalty(
     user: CurrentUser,
 ) -> int:
     """Award points + streak for an authenticated user. Returns points earned."""
-    points_earned = max(1, int(amount / 10))
+    # 50 pts per ticket as per spec (section 6.2)
+    booking_res = await asyncio.to_thread(
+        lambda: supabase_admin.table("bookings")
+            .select("num_tickets")
+            .eq("id", booking_id)
+            .maybe_single()
+            .execute()
+    )
+    num_tickets = (booking_res.data or {}).get("num_tickets") or 1
+    points_earned = 50 * num_tickets
     points_discount = min(points_redeemed, int(amount))
     final_amount = max(0, amount - points_discount)
     await asyncio.to_thread(
