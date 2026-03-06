@@ -176,18 +176,6 @@ async def cancel_booking_post(
     if not current_user.is_admin and str(booking.get("user_id")) != current_user.user_id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=_FORBIDDEN)
 
-    if not current_user.is_admin:
-        created_raw = booking.get("created_at")
-        if created_raw:
-            created_at = datetime.fromisoformat(str(created_raw).replace("Z", "+00:00"))
-            if created_at.tzinfo is None:
-                created_at = created_at.replace(tzinfo=timezone.utc)
-            if datetime.now(timezone.utc) - created_at > timedelta(minutes=30):
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Booking can no longer be cancelled (30-minute window has passed)",
-                )
-
     result = await crud_booking.cancel_booking(request.booking_id)
     return CancelBookingResponse(
         success=result.get("success", False),
@@ -207,18 +195,6 @@ async def cancel_booking_delete(
 
     if not current_user.is_admin and str(booking.get("user_id")) != current_user.user_id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=_FORBIDDEN)
-
-    if not current_user.is_admin:
-        created_raw = booking.get("created_at")
-        if created_raw:
-            created_at = datetime.fromisoformat(str(created_raw).replace("Z", "+00:00"))
-            if created_at.tzinfo is None:
-                created_at = created_at.replace(tzinfo=timezone.utc)
-            if datetime.now(timezone.utc) - created_at > timedelta(minutes=30):
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Booking can no longer be cancelled (30-minute window has passed)",
-                )
 
     result = await crud_booking.cancel_booking(str(booking_id))
     return CancelBookingResponse(
@@ -324,19 +300,6 @@ async def change_showtime(
     # Enforce change_count limit (1 change maximum)
     if (b.get("change_count") or 0) >= 1:
         raise HTTPException(status_code=400, detail="Showtime can only be changed once")
-
-    # Enforce 30-min window from booking creation (non-admin only)
-    if not current_user.is_admin:
-        created_raw = b.get("created_at")
-        if created_raw:
-            created_at_dt = datetime.fromisoformat(str(created_raw).replace("Z", "+00:00"))
-            if created_at_dt.tzinfo is None:
-                created_at_dt = created_at_dt.replace(tzinfo=timezone.utc)
-            if datetime.now(timezone.utc) - created_at_dt > timedelta(minutes=30):
-                raise HTTPException(
-                    status_code=400,
-                    detail="Booking can no longer be changed (30-minute window has passed)",
-                )
 
     # Enforce 30-min cutoff before original showtime; also fetch base_price for upcharge calc
     orig_showtime = await asyncio.to_thread(
