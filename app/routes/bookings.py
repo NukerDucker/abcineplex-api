@@ -338,10 +338,10 @@ async def change_showtime(
                     detail="Booking can no longer be changed (30-minute window has passed)",
                 )
 
-    # Enforce 30-min cutoff before original showtime
+    # Enforce 30-min cutoff before original showtime; also fetch base_price for upcharge calc
     orig_showtime = await asyncio.to_thread(
         lambda: supabase_admin.table("showtimes")
-            .select("start_time")
+            .select("start_time, base_price")
             .eq("id", b["showtime_id"])
             .maybe_single()
             .execute()
@@ -398,13 +398,28 @@ async def change_showtime(
                 .execute()
         )
 
+    # Calculate upcharge if new showtime is more expensive
+    old_price = float((orig_showtime.data or {}).get("base_price") or 0)
+    new_price = float(new_st_res.data.get("base_price") or 0)
+    num_tickets = int(b.get("num_tickets") or 1)
+    price_difference = max(0.0, (new_price - old_price) * num_tickets)
+
+    if price_difference > 0:
+        old_total = float(b.get("total_amount") or 0)
+        await asyncio.to_thread(
+            lambda: supabase_admin.table("bookings")
+                .update({"total_amount": old_total + price_difference})
+                .eq("id", booking_id)
+                .execute()
+        )
+
     return {
         "booking_id": booking_id,
         "old_showtime_id": old_showtime_id,
         "new_showtime_id": body.new_showtime_id,
         "status": "changed",
-        "price_difference": 0,
-        "message": "Showtime changed. No refund for downgrade.",
+        "price_difference": price_difference,
+        "message": "Showtime changed. No refund for downgrade. Additional charge applied if any.",
     }
 
 
