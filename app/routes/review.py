@@ -11,7 +11,7 @@ from app.schemas.review import (
     ReviewWithMovie,
     ReviewWithMovieListResponse,
 )
-from app.crud.review import CRUDReview, _build_showtime_label
+from app.crud.review import CRUDReview
 from app.core.supabase import supabase_admin
 from app.core.security import get_current_user, CurrentUser
 from app.core.exceptions import NotFoundException, AppException
@@ -88,10 +88,7 @@ async def _resolve_booking_context(booking_id: str, user_id: str) -> dict:
         if start_dt > datetime.now(timezone.utc):
             raise HTTPException(status_code=400, detail="Showtime has not started yet")
 
-    theatre_id = st.data.get("theatre_id")
-    theatre_name = f"Theatre {theatre_id}" if theatre_id else "Unknown"
     extras["showtime_id"] = showtime_id
-    extras["showtime_label"] = _build_showtime_label(start_time_raw, theatre_name)
     return extras
 
 

@@ -169,7 +169,7 @@ class QualityScoreResponse(BaseModel):
 class TopPicksItem(BaseModel):
     id: int
     title: str
-    poster_url: Optional[str] = None
+    banner_url: Optional[str] = None
     genre: Optional[List[str]] = None
     consensus_score: Optional[float] = None
     total_bookings: Optional[int] = None

@@ -64,7 +64,7 @@ class CRUDBooking:
             }
 
         return await self._rpc("reserve_seats", {
-            "p_user_id":        str(user_id),
+            "p_user_id":        user_id,
             "p_showtime_id":    request.showtime_id,
             "p_seat_ids":       request.seat_ids,
             "p_price_per_seat": request.price_per_seat,
@@ -326,4 +326,4 @@ class CRUDBooking:
                 exp_dt = exp_dt.replace(tzinfo=timezone.utc)
             if exp_dt < datetime.now(timezone.utc):
                 return None
-        return await self.get_booking_by_id(res.data["booking_id"])
+        return await self.get_booking_details(res.data["booking_id"])

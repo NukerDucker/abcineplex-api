@@ -323,7 +323,10 @@ class CRUDMovie:
                 .execute()
         )
         movie_ids = [r["id"] for r in (res.data or [])]
-        await asyncio.gather(*[self.recalculate_consensus_score(mid) for mid in movie_ids])
+
+        for mid in movie_ids:
+            await self.recalculate_consensus_score(mid)
+
         return len(movie_ids)
 
     async def get_top_picks(self, limit: int = 10) -> List[dict]:
