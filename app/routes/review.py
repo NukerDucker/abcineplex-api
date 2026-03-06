@@ -17,6 +17,8 @@ from app.core.security import get_current_user, CurrentUser
 from app.core.exceptions import NotFoundException, AppException
 
 router = APIRouter(prefix="/api/v1/reviews", tags=["reviews"])
+# Spec-path aliases mounted at the movie/booking-nested URLs
+spec_router = APIRouter(tags=["reviews"])
 crud_review = CRUDReview(supabase_admin)
 
 
@@ -255,3 +257,60 @@ async def remove_review_like(
     if not success:
         raise HTTPException(status_code=400, detail="Like not found")
     return {"status": "success", "message": "Like removed"}
+
+
+# ── Spec-path aliases ─────────────────────────────────────────────────────────
+# These expose the same logic at the spec-required nested paths so both the
+# original /api/v1/reviews/... paths and the spec paths work simultaneously.
+
+class _MovieReviewCreate(ReviewCreate):
+    """Same as ReviewCreate but movie_id is optional — overridden by path param."""
+    movie_id: Optional[int] = None
+
+
+@spec_router.post("/api/v1/movies/{movie_id}/reviews", response_model=ReviewResponse)
+async def create_review_spec(
+    movie_id: int,
+    review_in: _MovieReviewCreate,
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """Spec-path alias: POST /movies/:id/reviews"""
+    review_data = review_in.model_dump(exclude={"booking_id"})
+    review_data["user_id"] = current_user.user_id
+    review_data["movie_id"] = movie_id  # path param takes precedence
+
+    if review_in.booking_id:
+        extras = await _resolve_booking_context(review_in.booking_id, current_user.user_id)
+        review_data.update(extras)
+
+    try:
+        result = await crud_review.create(review_data, user_id=current_user.user_id)
+        await _award_review_points(current_user.user_id)
+        return result
+    except ValueError as e:
+        err = str(e)
+        if err == "DUPLICATE_REVIEW":
+            raise HTTPException(status_code=409, detail="You have already reviewed this movie.")
+        if "idx_reviews_one_per_booking" in err or "23505" in err:
+            raise HTTPException(status_code=409, detail="You have already reviewed this booking.")
+        raise HTTPException(status_code=400, detail=err)
+
+
+@spec_router.get("/api/v1/movies/{movie_id}/reviews", response_model=ReviewListResponse)
+async def get_movie_reviews_spec(
+    movie_id: int,
+    page: int = Query(1, ge=1),
+    limit: int = Query(10, ge=1, le=100),
+):
+    """Spec-path alias: GET /movies/:id/reviews"""
+    skip = (page - 1) * limit
+    return await crud_review.get_by_movie(movie_id, skip, limit)
+
+
+@spec_router.get("/api/v1/bookings/{booking_id}/review-status")
+async def get_booking_review_status_spec(
+    booking_id: str,
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """Spec-path alias: GET /bookings/:id/review-status"""
+    return await get_review_status(booking_id, current_user)

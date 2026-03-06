@@ -15,7 +15,7 @@ from app.routes.movies import router as movies_router
 from app.routes.showtimes import router as showtimes_router
 from app.routes.bookings import router as bookings_router
 from app.routes.users import router as users_router
-from app.routes.review import router as reviews_router
+from app.routes.review import router as reviews_router, spec_router as reviews_spec_router
 from app.routes.public import router as public_router
 from app.routes.payments import router as payments_router
 from app.routes.products import router as products_router
@@ -62,7 +62,7 @@ app.add_exception_handler(Exception, generic_exception_handler)
 for router in (
     auth_router,
     movies_router, showtimes_router, bookings_router, users_router,
-    public_router, reviews_router, payments_router, products_router, orders_router,
+    public_router, reviews_router, reviews_spec_router, payments_router, products_router, orders_router,
     admin_router,  # Admin routes last
 ):
     app.include_router(router)
