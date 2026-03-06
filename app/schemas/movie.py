@@ -164,6 +164,26 @@ class QualityScoreResponse(BaseModel):
     score_breakdown: RAQSBreakdown
 
 
+# ── Consensus Score schemas ───────────────────────────────────────────────────
+
+class ConsensusScoreBreakdown(BaseModel):
+    avg_user_rating: float
+    avg_user_rating_normalized: float
+    total_bookings: int
+    total_bookings_normalized: float
+    weight_rating: float
+    weight_bookings: float
+    formula: str = "(avg_user_rating_normalized × 0.6) + (total_bookings_normalized × 0.4)"
+
+
+class ConsensusScoreResponse(BaseModel):
+    movie_id: int
+    title: str
+    consensus_score: float
+    score_breakdown: ConsensusScoreBreakdown
+    last_updated: Optional[str] = None
+
+
 # ── Consensus / Top Picks schemas ─────────────────────────────────────────────
 
 class TopPicksItem(BaseModel):

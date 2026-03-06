@@ -8,6 +8,7 @@ from app.schemas.movie import (
     MovieListResponse, MovieSummary, MovieDetail,
     MovieShowtimesResponse, ShowtimeCard,
     QualityScoreResponse, RAQSBreakdown,
+    ConsensusScoreResponse, ConsensusScoreBreakdown,
     TopPicksItem, TopPicksResponse,
 )
 from app.core.supabase import supabase_admin
@@ -192,6 +193,68 @@ async def get_movie_quality_score(movie_id: int):
             confidence_weight=round(confidence, 4),
             recency_factor=recency,
         ),
+    )
+
+
+@router.get("/{movie_id}/consensus-score", response_model=ConsensusScoreResponse)
+async def get_movie_consensus_score(movie_id: int):
+    """Get the full Consensus Score breakdown for a movie."""
+    from app.core.supabase import supabase_admin as _sa
+    import asyncio as _asyncio
+
+    movie = await crude_movie.get_by_id(movie_id)
+    if not movie:
+        raise NotFoundException("Movie", str(movie_id))
+
+    # Aggregate avg rating from movie_reviews
+    rating_res = await _asyncio.to_thread(
+        lambda: _sa.table("movie_reviews")
+            .select("rating")
+            .eq("movie_id", movie_id)
+            .execute()
+    )
+    ratings = [r["rating"] for r in (rating_res.data or []) if r.get("rating") is not None]
+    avg_rating = round(sum(ratings) / len(ratings), 2) if ratings else 0.0
+
+    # Count confirmed bookings for this movie's showtimes
+    showtime_res = await _asyncio.to_thread(
+        lambda: _sa.table("showtimes")
+            .select("id")
+            .eq("movie_id", movie_id)
+            .execute()
+    )
+    showtime_ids = [s["id"] for s in (showtime_res.data or [])]
+    total_bookings = 0
+    if showtime_ids:
+        bk_res = await _asyncio.to_thread(
+            lambda: _sa.table("bookings")
+                .select("id", count="exact")
+                .in_("showtime_id", showtime_ids)
+                .eq("booking_status", "confirmed")
+                .execute()
+        )
+        total_bookings = bk_res.count or 0
+
+    bookings_scale = 2000
+    weight_rating = 0.6
+    weight_bookings = 0.4
+    rating_norm = round((avg_rating / 5.0) * 100, 2)
+    bookings_norm = round(min((total_bookings / bookings_scale) * 100, 100), 2)
+    score = round((rating_norm * weight_rating) + (bookings_norm * weight_bookings), 2)
+
+    return ConsensusScoreResponse(
+        movie_id=movie_id,
+        title=movie.get("title", ""),
+        consensus_score=score,
+        score_breakdown=ConsensusScoreBreakdown(
+            avg_user_rating=avg_rating,
+            avg_user_rating_normalized=rating_norm,
+            total_bookings=total_bookings,
+            total_bookings_normalized=bookings_norm,
+            weight_rating=weight_rating,
+            weight_bookings=weight_bookings,
+        ),
+        last_updated=movie.get("consensus_score_updated_at"),
     )
 
 
