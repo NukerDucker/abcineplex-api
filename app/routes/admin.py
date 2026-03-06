@@ -2,9 +2,12 @@
 Admin Portal API Routes — Consolidated under /api/v1/admin/
 All endpoints require admin privileges.
 """
-from fastapi import APIRouter, Query, Depends, HTTPException, status
+from fastapi import APIRouter, Query, Depends, HTTPException, status, Body
 from typing import Optional, List
 from uuid import UUID
+from pydantic import BaseModel
+import asyncio
+import secrets as _secrets
 
 from app.crud.movie import CRUDMovie
 from app.crud.showtime import CRUDShowtime
@@ -298,33 +301,137 @@ async def list_admin_bookings(
         )
 
 
+class AdminBookingUpdate(BaseModel):
+    new_showtime_id: Optional[int] = None
+    new_seat_ids: Optional[List[int]] = None
+    admin_note: Optional[str] = None
+
+
 @router.patch("/bookings/{booking_id}")
 async def update_admin_booking(
     booking_id: str,
-    new_showtime_id: Optional[int] = Query(None),
-    new_seat_ids: Optional[List[int]] = Query(None),
-    admin_note: Optional[str] = Query(None)
+    body: AdminBookingUpdate,
 ):
-    """Admin changes seat or showtime for a customer booking"""
-    try:
-        # TODO: Implement admin booking change logic
-        # - Validate booking exists
-        # - If changing showtime: validate new showtime, check seat availability
-        # - If changing seat: validate seats in same showtime
-        # - Update booking_seats
-        # - Create audit trail
-        raise HTTPException(
-            status_code=status.HTTP_501_NOT_IMPLEMENTED,
-            detail="Endpoint not yet implemented"
+    """Admin changes seat or showtime for a customer booking (no time restrictions)."""
+    booking_res = await asyncio.to_thread(
+        lambda: supabase_admin.table("bookings")
+            .select("*")
+            .eq("id", booking_id)
+            .maybe_single()
+            .execute()
+    )
+    if not booking_res.data:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    b = booking_res.data
+
+    if not body.new_showtime_id and not body.new_seat_ids:
+        raise HTTPException(status_code=400, detail="Provide new_showtime_id and/or new_seat_ids")
+
+    target_showtime_id = body.new_showtime_id or b["showtime_id"]
+
+    # Validate new showtime if provided
+    if body.new_showtime_id:
+        st_res = await asyncio.to_thread(
+            lambda: supabase_admin.table("showtimes")
+                .select("id")
+                .eq("id", body.new_showtime_id)
+                .maybe_single()
+                .execute()
         )
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error updating booking: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to update booking"
+        if not st_res.data:
+            raise HTTPException(status_code=404, detail="New showtime not found")
+
+    # Check seat conflicts if new seats provided
+    if body.new_seat_ids:
+        other_bookings_res = await asyncio.to_thread(
+            lambda: supabase_admin.table("bookings")
+                .select("id")
+                .eq("showtime_id", target_showtime_id)
+                .neq("id", booking_id)
+                .in_("booking_status", ["confirmed", "changed", "pending"])
+                .execute()
         )
+        other_ids = [row["id"] for row in (other_bookings_res.data or [])]
+        if other_ids:
+            taken_res = await asyncio.to_thread(
+                lambda: supabase_admin.table("booking_seats")
+                    .select("seat_id")
+                    .in_("booking_id", other_ids)
+                    .in_("seat_id", body.new_seat_ids)
+                    .execute()
+            )
+            taken = {row["seat_id"] for row in (taken_res.data or [])}
+            if taken:
+                raise HTTPException(status_code=409, detail=f"Seats {sorted(taken)} are not available")
+
+    # Apply showtime change
+    update_data: dict = {}
+    if body.new_showtime_id:
+        update_data["showtime_id"] = body.new_showtime_id
+        update_data["original_showtime_id"] = b["showtime_id"]
+        update_data["booking_status"] = "changed"
+
+    if update_data:
+        await asyncio.to_thread(
+            lambda: supabase_admin.table("bookings")
+                .update(update_data)
+                .eq("id", booking_id)
+                .execute()
+        )
+
+    # Apply seat change if requested
+    if body.new_seat_ids:
+        await asyncio.to_thread(
+            lambda: supabase_admin.table("booking_seats")
+                .delete()
+                .eq("booking_id", booking_id)
+                .execute()
+        )
+        new_booking_seats = [
+            {"booking_id": booking_id, "seat_id": sid, "showtime_id": target_showtime_id}
+            for sid in body.new_seat_ids
+        ]
+        await asyncio.to_thread(
+            lambda: supabase_admin.table("booking_seats").insert(new_booking_seats).execute()
+        )
+
+        # Recreate tickets
+        tickets_res = await asyncio.to_thread(
+            lambda: supabase_admin.table("tickets")
+                .select("ticket_type, price_paid")
+                .eq("booking_id", booking_id)
+                .execute()
+        )
+        existing = tickets_res.data or []
+        if existing:
+            await asyncio.to_thread(
+                lambda: supabase_admin.table("tickets")
+                    .delete()
+                    .eq("booking_id", booking_id)
+                    .execute()
+            )
+            new_tickets = []
+            for i, sid in enumerate(body.new_seat_ids):
+                old_t = existing[i] if i < len(existing) else existing[-1]
+                new_tickets.append({
+                    "booking_id": booking_id,
+                    "seat_id": sid,
+                    "ticket_type": old_t.get("ticket_type", "normal"),
+                    "price_paid": old_t.get("price_paid", 0),
+                    "qr_code_slug": _secrets.token_urlsafe(12),
+                })
+            await asyncio.to_thread(
+                lambda: supabase_admin.table("tickets").insert(new_tickets).execute()
+            )
+
+    updated = await asyncio.to_thread(
+        lambda: supabase_admin.table("bookings")
+            .select("*")
+            .eq("id", booking_id)
+            .maybe_single()
+            .execute()
+    )
+    return updated.data or {}
 
 
 # ========== User Management ==========
