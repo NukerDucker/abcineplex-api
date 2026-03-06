@@ -66,6 +66,10 @@ class ChangeShowtimeRequest(BaseModel):
     )
 
 
+class ChangeSeatRequest(BaseModel):
+    new_seat_ids: List[int] = Field(..., min_length=1, max_length=8)
+
+
 # ── Response schemas ──────────────────────────────────────────
 
 class ReserveSeatResponse(BaseModel):

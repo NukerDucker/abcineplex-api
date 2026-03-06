@@ -14,6 +14,7 @@ from app.schemas.booking import (
     CancelBookingRequest,
     CancelBookingResponse,
     ChangeShowtimeRequest,
+    ChangeSeatRequest,
     BookingDetail,
     AvailableSeat,
     ScreenInfo,
@@ -410,7 +411,139 @@ async def change_showtime(
 @router.post("/{booking_id}/change-seat")
 async def change_seat(
     booking_id: str,
-    new_seat_ids: List[int],
+    body: ChangeSeatRequest,
     current_user: CurrentUser = Depends(get_current_user),
 ):
-    raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail="Not yet implemented")
+    """Self-service seat change within the same showtime (any time before it starts)."""
+    booking = await asyncio.to_thread(
+        lambda: supabase_admin.table("bookings")
+            .select("*")
+            .eq("id", booking_id)
+            .maybe_single()
+            .execute()
+    )
+    if not booking.data:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    b = booking.data
+
+    if b.get("user_id") != current_user.user_id:
+        raise HTTPException(status_code=403, detail="Not your booking")
+    if b.get("booking_status") not in ("confirmed", "changed"):
+        raise HTTPException(status_code=400, detail="Only confirmed bookings can have seats changed")
+
+    # Enforce showtime hasn't started yet
+    showtime_res = await asyncio.to_thread(
+        lambda: supabase_admin.table("showtimes")
+            .select("start_time")
+            .eq("id", b["showtime_id"])
+            .maybe_single()
+            .execute()
+    )
+    if showtime_res.data:
+        raw_st = showtime_res.data.get("start_time")
+        if raw_st:
+            st = datetime.fromisoformat(str(raw_st).replace("Z", "+00:00"))
+            if st.tzinfo is None:
+                st = st.replace(tzinfo=timezone.utc)
+            if datetime.now(timezone.utc) >= st:
+                raise HTTPException(status_code=400, detail="Cannot change seats after showtime has started")
+
+    # Get old seat IDs
+    old_seats_res = await asyncio.to_thread(
+        lambda: supabase_admin.table("booking_seats")
+            .select("seat_id")
+            .eq("booking_id", booking_id)
+            .execute()
+    )
+    old_seat_ids = [row["seat_id"] for row in (old_seats_res.data or [])]
+
+    # Find active bookings (by others) for this showtime to check conflicts
+    other_bookings_res = await asyncio.to_thread(
+        lambda: supabase_admin.table("bookings")
+            .select("id, booking_status, payment_deadline")
+            .eq("showtime_id", b["showtime_id"])
+            .neq("id", booking_id)
+            .in_("booking_status", ["confirmed", "changed", "pending"])
+            .execute()
+    )
+    now = datetime.now(timezone.utc)
+    active_booking_ids = []
+    for bk in (other_bookings_res.data or []):
+        bk_status = bk["booking_status"]
+        if bk_status in ("confirmed", "changed"):
+            active_booking_ids.append(bk["id"])
+        elif bk_status == "pending":
+            deadline_raw = bk.get("payment_deadline")
+            if deadline_raw:
+                dl = datetime.fromisoformat(str(deadline_raw).replace("Z", "+00:00"))
+                if dl.tzinfo is None:
+                    dl = dl.replace(tzinfo=timezone.utc)
+                if dl > now:
+                    active_booking_ids.append(bk["id"])
+            else:
+                active_booking_ids.append(bk["id"])
+
+    if active_booking_ids:
+        taken_res = await asyncio.to_thread(
+            lambda: supabase_admin.table("booking_seats")
+                .select("seat_id")
+                .in_("booking_id", active_booking_ids)
+                .in_("seat_id", body.new_seat_ids)
+                .execute()
+        )
+        taken = {row["seat_id"] for row in (taken_res.data or [])}
+        if taken:
+            raise HTTPException(status_code=409, detail=f"Seats {sorted(taken)} are not available")
+
+    # Swap booking_seats
+    await asyncio.to_thread(
+        lambda: supabase_admin.table("booking_seats")
+            .delete()
+            .eq("booking_id", booking_id)
+            .execute()
+    )
+    new_booking_seats = [
+        {"booking_id": booking_id, "seat_id": sid, "showtime_id": b["showtime_id"]}
+        for sid in body.new_seat_ids
+    ]
+    await asyncio.to_thread(
+        lambda: supabase_admin.table("booking_seats").insert(new_booking_seats).execute()
+    )
+
+    # Swap tickets — preserve ticket_type and price_paid, regenerate QR slug
+    tickets_res = await asyncio.to_thread(
+        lambda: supabase_admin.table("tickets")
+            .select("ticket_type, price_paid")
+            .eq("booking_id", booking_id)
+            .execute()
+    )
+    existing_tickets = tickets_res.data or []
+    if existing_tickets:
+        import secrets as _secrets
+        await asyncio.to_thread(
+            lambda: supabase_admin.table("tickets")
+                .delete()
+                .eq("booking_id", booking_id)
+                .execute()
+        )
+        new_tickets = []
+        for i, sid in enumerate(body.new_seat_ids):
+            old_t = existing_tickets[i] if i < len(existing_tickets) else existing_tickets[-1]
+            new_tickets.append({
+                "booking_id": booking_id,
+                "seat_id": sid,
+                "ticket_type": old_t.get("ticket_type", "normal"),
+                "price_paid": old_t.get("price_paid", 0),
+                "qr_code_slug": _secrets.token_urlsafe(12),
+            })
+        await asyncio.to_thread(
+            lambda: supabase_admin.table("tickets").insert(new_tickets).execute()
+        )
+
+    return {
+        "booking_id": booking_id,
+        "old_seat_ids": old_seat_ids,
+        "new_seat_ids": body.new_seat_ids,
+        "status": "confirmed",
+        "price_difference": 0,
+    }
