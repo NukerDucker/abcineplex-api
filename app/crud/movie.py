@@ -1,6 +1,8 @@
 from supabase import Client
 from typing import List, Optional
 from app.schemas.movie import MovieCreate, MovieUpdate
+from app.core.calculations import calc_consensus_score
+from app.core.config import settings
 import asyncio
 import logging
 
@@ -257,3 +259,81 @@ class CRUDMovie:
             except Exception as fallback_error:
                 logger.error(f"Failed to fetch showtimes for movie {movie_id}: {fallback_error}")
                 return []
+
+    # ── Consensus score ───────────────────────────────────────
+
+    async def recalculate_consensus_score(self, movie_id: int) -> float:
+        """Recompute and persist the consensus score for one movie.
+
+        Aggregates avg rating + booking count from the DB, runs
+        calc_consensus_score(), writes the result back to movies.consensus_score.
+        Returns the new score.
+        """
+        # Aggregate avg rating from movie_reviews
+        rating_res = await asyncio.to_thread(
+            lambda: self.client.table("movie_reviews")
+                .select("rating")
+                .eq("movie_id", movie_id)
+                .execute()
+        )
+        ratings = [r["rating"] for r in (rating_res.data or []) if r.get("rating") is not None]
+        avg_rating = sum(ratings) / len(ratings) if ratings else 0.0
+
+        # Count confirmed bookings for this movie via showtimes join
+        showtime_res = await asyncio.to_thread(
+            lambda: self.client.table("showtimes")
+                .select("id")
+                .eq("movie_id", movie_id)
+                .execute()
+        )
+        showtime_ids = [s["id"] for s in (showtime_res.data or [])]
+        total_bookings = 0
+        if showtime_ids:
+            bk_res = await asyncio.to_thread(
+                lambda: self.client.table("bookings")
+                    .select("id", count="exact")
+                    .eq("booking_status", "confirmed")
+                    .in_("showtime_id", showtime_ids)
+                    .execute()
+            )
+            total_bookings = bk_res.count or 0
+
+        score = calc_consensus_score(
+            avg_user_rating=avg_rating,
+            total_bookings=total_bookings,
+            bookings_scale=settings.consensus_bookings_scale,
+            weight_rating=settings.consensus_weight_rating,
+            weight_bookings=settings.consensus_weight_bookings,
+        )
+
+        await asyncio.to_thread(
+            lambda: self.client.table("movies")
+                .update({"consensus_score": score, "total_bookings": total_bookings})
+                .eq("id", movie_id)
+                .execute()
+        )
+        return score
+
+    async def recalculate_all_consensus_scores(self) -> int:
+        """Recompute consensus scores for every active movie. Returns count processed."""
+        res = await asyncio.to_thread(
+            lambda: self.client.table("movies")
+                .select("id")
+                .eq("is_active", True)
+                .execute()
+        )
+        movie_ids = [r["id"] for r in (res.data or [])]
+        await asyncio.gather(*[self.recalculate_consensus_score(mid) for mid in movie_ids])
+        return len(movie_ids)
+
+    async def get_top_picks(self, limit: int = 10) -> List[dict]:
+        """Return top movies ordered by consensus_score descending."""
+        response = await asyncio.to_thread(
+            lambda: self.client.table("movies")
+                .select(_MOVIE_SELECT)
+                .eq("is_active", True)
+                .order("consensus_score", desc=True)
+                .limit(limit)
+                .execute()
+        )
+        return [_assemble(dict(r)) for r in (response.data or [])]

@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 import asyncio
+from datetime import datetime, timezone
 from typing import List, Optional
 from app.schemas.review import (
     ReviewCreate,
@@ -10,7 +11,7 @@ from app.schemas.review import (
     ReviewWithMovie,
     ReviewWithMovieListResponse,
 )
-from app.crud.review import CRUDReview
+from app.crud.review import CRUDReview, _build_showtime_label
 from app.core.supabase import supabase_admin
 from app.core.security import get_current_user, CurrentUser
 from app.core.exceptions import NotFoundException, AppException
@@ -48,46 +49,159 @@ async def read_reviews_by_movie(
     return await crud_review.get_by_movie(movie_id, skip, limit)
 
 
+async def _resolve_booking_context(booking_id: str, user_id: str) -> dict:
+    """Validate booking ownership and return showtime context fields to merge into review_data."""
+    booking = await asyncio.to_thread(
+        lambda: supabase_admin.table("bookings")
+            .select("user_id, showtime_id, booking_status")
+            .eq("id", booking_id)
+            .maybe_single()
+            .execute()
+    )
+    if not booking.data:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    if str(booking.data.get("user_id")) != user_id:
+        raise HTTPException(status_code=403, detail="Not authorized to review this booking")
+    if booking.data.get("booking_status") != "confirmed":
+        raise HTTPException(status_code=400, detail="Can only review confirmed bookings")
+
+    extras: dict = {"booking_id": booking_id}
+    showtime_id = booking.data.get("showtime_id")
+    if not showtime_id:
+        return extras
+
+    st = await asyncio.to_thread(
+        lambda: supabase_admin.table("showtimes")
+            .select("start_time, theatre_id")
+            .eq("id", showtime_id)
+            .maybe_single()
+            .execute()
+    )
+    if not st.data:
+        return extras
+
+    start_time_raw = st.data.get("start_time")
+    if start_time_raw:
+        start_dt = datetime.fromisoformat(str(start_time_raw).replace("Z", "+00:00"))
+        if start_dt.tzinfo is None:
+            start_dt = start_dt.replace(tzinfo=timezone.utc)
+        if start_dt > datetime.now(timezone.utc):
+            raise HTTPException(status_code=400, detail="Showtime has not started yet")
+
+    theatre_id = st.data.get("theatre_id")
+    theatre_name = f"Theatre {theatre_id}" if theatre_id else "Unknown"
+    extras["showtime_id"] = showtime_id
+    extras["showtime_label"] = _build_showtime_label(start_time_raw, theatre_name)
+    return extras
+
+
+async def _award_review_points(user_id: str) -> None:
+    """Award 20 loyalty points for submitting a review. Best-effort — never raises."""
+    try:
+        user_res = await asyncio.to_thread(
+            lambda: supabase_admin.table("users")
+                .select("loyalty_points")
+                .eq("id", user_id)
+                .maybe_single()
+                .execute()
+        )
+        if user_res.data:
+            new_pts = (user_res.data.get("loyalty_points") or 0) + 20
+            await asyncio.to_thread(
+                lambda: supabase_admin.table("users")
+                    .update({"loyalty_points": new_pts})
+                    .eq("id", user_id)
+                    .execute()
+            )
+    except Exception:
+        pass
+
+
 # -------- CREATE --------
 @router.post("", response_model=ReviewResponse)
 async def create_review(
     review_in: ReviewCreate,
     current_user: CurrentUser = Depends(get_current_user)
 ):
-    """Create a new review for a movie"""
+    """Create a new review for a movie. Optionally linked to a booking."""
+    review_data = review_in.model_dump(exclude={"booking_id"})
+    review_data["user_id"] = current_user.user_id
+
+    if review_in.booking_id:
+        extras = await _resolve_booking_context(review_in.booking_id, current_user.user_id)
+        review_data.update(extras)
+
     try:
-        review_data = review_in.model_dump()
-        review_data["user_id"] = current_user.user_id
-        # username column removed from movie_reviews — user_name is now
-        # fetched via JOIN on users at read time (see CRUDReview._flatten_user)
-
         result = await crud_review.create(review_data, user_id=current_user.user_id)
-
-        # Award 20 loyalty points for submitting a review (EP08-UC002)
-        try:
-            user_res = await asyncio.to_thread(
-                lambda: supabase_admin.table("users")
-                    .select("loyalty_points")
-                    .eq("id", current_user.user_id)
-                    .maybe_single()
-                    .execute()
-            )
-            if user_res.data:
-                new_pts = (user_res.data.get("loyalty_points") or 0) + 20
-                await asyncio.to_thread(
-                    lambda: supabase_admin.table("users")
-                        .update({"loyalty_points": new_pts})
-                        .eq("id", current_user.user_id)
-                        .execute()
-                )
-        except Exception:
-            pass  # Points award is best-effort; don't fail the review creation
-
+        await _award_review_points(current_user.user_id)
         return result
     except ValueError as e:
-        if str(e) == "DUPLICATE_REVIEW":
+        err = str(e)
+        if err == "DUPLICATE_REVIEW":
             raise HTTPException(status_code=409, detail="You have already reviewed this movie.")
-        raise HTTPException(status_code=400, detail=str(e))
+        if "idx_reviews_one_per_booking" in err or "23505" in err:
+            raise HTTPException(status_code=409, detail="You have already reviewed this booking.")
+        raise HTTPException(status_code=400, detail=err)
+
+
+# -------- REVIEW STATUS --------
+@router.get("/booking/{booking_id}/status")
+async def get_review_status(
+    booking_id: str,
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """Check if current user can review a booking. Used to show/hide Write a Review button."""
+    booking = await asyncio.to_thread(
+        lambda: supabase_admin.table("bookings")
+            .select("user_id, showtime_id, booking_status")
+            .eq("id", booking_id)
+            .maybe_single()
+            .execute()
+    )
+    if not booking.data:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    if str(booking.data.get("user_id")) != current_user.user_id:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    showtime_id = booking.data.get("showtime_id")
+    showtime_passed = False
+    movie_id = None
+
+    if showtime_id:
+        st = await asyncio.to_thread(
+            lambda: supabase_admin.table("showtimes")
+                .select("start_time, movie_id")
+                .eq("id", showtime_id)
+                .maybe_single()
+                .execute()
+        )
+        if st.data:
+            movie_id = st.data.get("movie_id")
+            start_raw = st.data.get("start_time")
+            if start_raw:
+                start_dt = datetime.fromisoformat(str(start_raw).replace("Z", "+00:00"))
+                if start_dt.tzinfo is None:
+                    start_dt = start_dt.replace(tzinfo=timezone.utc)
+                showtime_passed = start_dt < datetime.now(timezone.utc)
+
+    already_reviewed = False
+    if showtime_passed:
+        rev = await asyncio.to_thread(
+            lambda: supabase_admin.table("movie_reviews")
+                .select("id", count="exact")
+                .eq("booking_id", booking_id)
+                .execute()
+        )
+        already_reviewed = (rev.count or 0) > 0
+
+    return {
+        "booking_id": booking_id,
+        "can_review": showtime_passed and not already_reviewed and booking.data.get("booking_status") == "confirmed",
+        "already_reviewed": already_reviewed,
+        "showtime_has_passed": showtime_passed,
+        "movie_id": movie_id,
+        "showtime_id": showtime_id,
+    }
 
 
 # -------- UPDATE --------

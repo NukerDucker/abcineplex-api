@@ -285,3 +285,45 @@ class CRUDBooking:
             return None
         except Exception:
             return None
+
+    # ── Guest session helpers ─────────────────────────────────────────────────
+
+    async def create_guest_session(
+        self,
+        booking_id: str,
+        email: Optional[str],
+        phone: Optional[str],
+    ) -> str:
+        """Create a guest_sessions row and return the generated token."""
+        import secrets
+        token = secrets.token_urlsafe(32)
+        await asyncio.to_thread(
+            lambda: self.client.table("guest_sessions").insert({
+                "booking_id": booking_id,
+                "token": token,
+                "email": email,
+                "phone": phone,
+            }).execute()
+        )
+        return token
+
+    async def get_booking_by_guest_token(self, token: str) -> Optional[Dict[str, Any]]:
+        """Return booking detail for a guest session token, or None if not found/expired."""
+        res = await asyncio.to_thread(
+            lambda: self.client.table("guest_sessions")
+                .select("booking_id, expires_at")
+                .eq("token", token)
+                .maybe_single()
+                .execute()
+        )
+        if not res.data:
+            return None
+        from datetime import datetime, timezone
+        expires_at = res.data.get("expires_at")
+        if expires_at:
+            exp_dt = datetime.fromisoformat(str(expires_at).replace("Z", "+00:00"))
+            if exp_dt.tzinfo is None:
+                exp_dt = exp_dt.replace(tzinfo=timezone.utc)
+            if exp_dt < datetime.now(timezone.utc):
+                return None
+        return await self.get_booking_by_id(res.data["booking_id"])

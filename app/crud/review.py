@@ -9,6 +9,15 @@ _REVIEW_SELECT = "*, users!inner(user_name)"
 _REVIEW_WITH_MOVIE_SELECT = "*, users!inner(user_name), movies!inner(id, title, poster_url, release_date)"
 
 
+def _build_showtime_label(start_time, theatre_name: str) -> str:
+    """Format: 'Sat 1 Mar 2026, 19:00 — Hall A'"""
+    from datetime import datetime as _dt
+    if not start_time:
+        return ""
+    dt = _dt.fromisoformat(str(start_time).replace("Z", "+00:00")) if isinstance(start_time, str) else start_time
+    return dt.strftime("%-d %b %Y, %H:%M") + f" — {theatre_name}"
+
+
 def _flatten_user(review: dict) -> dict:
     """
     Pull users.user_name up to the top level as 'username' so downstream

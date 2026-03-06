@@ -8,10 +8,11 @@ from app.schemas.movie import (
     MovieListResponse, MovieSummary, MovieDetail,
     MovieShowtimesResponse, ShowtimeCard,
     QualityScoreResponse, RAQSBreakdown,
+    TopPicksItem, TopPicksResponse,
 )
 from app.core.supabase import supabase_admin
 from app.core.exceptions import NotFoundException
-from app.core.calculations import calc_raqs, calc_ttc
+from app.core.calculations import calc_raqs, calc_ttc, calc_demand_badge
 
 router = APIRouter(prefix="/api/v1/movies", tags=["movies"])
 crude_movie = CRUDMovie(supabase_admin)
@@ -38,6 +39,9 @@ def _build_showtime_card(
             pass
 
     theatre_id = st.get("theatre_id")
+    available = st.get("available_seats") or 0
+    total = st.get("total_seats") or 0
+    badge_data = calc_demand_badge(available, total)
     return ShowtimeCard(
         showtime_id=st["id"],
         theatre_name=f"Theatre {theatre_id}" if theatre_id else None,
@@ -51,6 +55,7 @@ def _build_showtime_card(
         member_discount_baht=st.get("member_discount_baht"),
         total_time_commitment_minutes=ttc,
         risk_adjusted_quality_score=raqs,
+        **badge_data,
     )
 
 
@@ -71,6 +76,15 @@ async def list_movies(
         total=total,
         page=page
     )
+
+
+@router.get("/top-picks", response_model=TopPicksResponse)
+async def get_top_picks(
+    limit: int = Query(10, ge=1, le=50),
+):
+    """Return top movies ranked by Consensus AI score."""
+    movies = await crude_movie.get_top_picks(limit=limit)
+    return TopPicksResponse(top_picks=movies, total=len(movies))
 
 
 @router.get("/{movie_id}", response_model=MovieDetail)

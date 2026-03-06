@@ -16,6 +16,10 @@ class PaymentInitiateRequest(BaseModel):
         default=True,
         description="For testing: True = payment succeeds, False = payment fails",
     )
+    guest_token: Optional[str] = Field(
+        default=None,
+        description="Guest session token — required when paying as a guest (no account)",
+    )
 
 
 class PaymentInitiateResponse(BaseModel):

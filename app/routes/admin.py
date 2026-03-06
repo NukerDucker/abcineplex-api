@@ -219,6 +219,13 @@ async def delete_admin_movie(movie_id: int):
     return {"message": "Movie removed"}
 
 
+@router.post("/movies/recalculate-consensus")
+async def recalculate_consensus_scores():
+    """Recalculate Consensus AI scores for all active movies."""
+    count = await crud_movie.recalculate_all_consensus_scores()
+    return {"message": f"Recalculated consensus scores for {count} movies", "count": count}
+
+
 # ========== Showtime Management ==========
 
 @router.post("/showtimes", response_model=Showtime, status_code=201)

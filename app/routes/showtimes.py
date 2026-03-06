@@ -21,7 +21,7 @@ from app.schemas.booking import ReserveSeatRequest
 from app.core.supabase import supabase_admin
 from app.core.exceptions import NotFoundException, AppException
 from app.core.security import get_current_user, get_admin_user, CurrentUser
-from app.core.calculations import calc_raqs, calc_ttc
+from app.core.calculations import calc_raqs, calc_ttc, calc_demand_badge
 
 logger = logging.getLogger(__name__)
 
@@ -80,9 +80,12 @@ async def get_showtime(showtime_id: int):
 
     theatre_id = raw.get("theatre_id")
     available = None
+    total_seats = raw.get("total_seats")
     if theatre_id:
         occupancy = await crud_showtime.get_screen_occupancy(theatre_id)
         available = occupancy.get("available_seats")
+
+    badge_data = calc_demand_badge(available or 0, total_seats or 0)
 
     return ShowtimeDetail(
         id=raw["id"],
@@ -93,12 +96,13 @@ async def get_showtime(showtime_id: int):
         estimated_end_with_credits=end_credits_dt,
         language=raw.get("language"),
         available_seats=available,
-        total_seats=raw.get("total_seats"),
+        total_seats=total_seats,
         base_price=raw.get("base_price") or 0.0,
         student_discount_baht=raw.get("student_discount_baht"),
         member_discount_baht=raw.get("member_discount_baht"),
         total_time_commitment_minutes=ttc,
         risk_adjusted_quality_score=raqs,
+        **badge_data,
     )
 
 
@@ -267,6 +271,23 @@ async def get_hold_status(
         is_active=is_active,
         expires_in_seconds=max(0, remaining),
     )
+
+
+@router.get("/{showtime_id}/demand")
+async def get_showtime_demand(showtime_id: int):
+    """Convenience endpoint — demand badge for a showtime."""
+    raw = await crud_showtime.get_by_id(showtime_id)
+    if not raw:
+        raise NotFoundException("Showtime", str(showtime_id))
+
+    theatre_id = raw.get("theatre_id")
+    available = 0
+    total = raw.get("total_seats") or 0
+    if theatre_id:
+        occupancy = await crud_showtime.get_screen_occupancy(theatre_id)
+        available = occupancy.get("available_seats") or 0
+
+    return {"showtime_id": showtime_id, **calc_demand_badge(available, total)}
 
 
 @router.get("/{showtime_id}/time-commitment", response_model=TimeCommitmentResponse)

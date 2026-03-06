@@ -33,6 +33,57 @@ def calc_raqs(rating: float, vote_count: int, release_date: date | None) -> floa
     return round(rating * confidence * recency, 2)
 
 
+def calc_demand_badge(available_seats: int, total_seats: int) -> dict:
+    """Compute demand badge from seat availability.
+
+    Returns badge slug and display label.
+    """
+    if total_seats == 0:
+        return {"demand_badge": "available", "badge_label": None, "seats_remaining_percent": 0.0}
+
+    pct = (available_seats / total_seats) * 100
+
+    if pct < 15:
+        badge = "selling_fast"
+        label = "Selling Fast! 🔥"
+    elif pct < 40:
+        badge = "filling_up"
+        label = "Filling Up"
+    elif pct <= 80:
+        badge = "available"
+        label = None  # no badge shown for normal availability
+    else:
+        badge = "plenty_of_space"
+        label = "Plenty of Space 🎉"
+
+    return {
+        "demand_badge": badge,
+        "badge_label": label,
+        "seats_remaining_percent": round(pct, 1),
+    }
+
+
+def calc_consensus_score(
+    avg_user_rating: float,
+    total_bookings: int,
+    bookings_scale: int = 2000,
+    weight_rating: float = 0.6,
+    weight_bookings: float = 0.4,
+) -> float:
+    """Consensus AI Top Picks score (0–100).
+
+    Combines normalised user rating and booking volume into a single score:
+        rating_norm   = (avg_user_rating / 5.0) * 100
+        bookings_norm = min((total_bookings / bookings_scale) * 100, 100)
+        score         = rating_norm * w_r + bookings_norm * w_b
+    """
+    if avg_user_rating <= 0 and total_bookings <= 0:
+        return 0.0
+    rating_norm = (avg_user_rating / 5.0) * 100
+    bookings_norm = min((total_bookings / bookings_scale) * 100, 100)
+    return round((rating_norm * weight_rating) + (bookings_norm * weight_bookings), 2)
+
+
 def calc_ttc(
     runtime_minutes: int,
     credits_minutes: int = 5,

@@ -71,6 +71,8 @@ class MovieSummary(BaseModel):
     subtitle_languages: Optional[List[str]] = None # assembled from movie_subtitle_languages join
     release_status: Optional[str] = None
     is_active: bool = True
+    consensus_score: Optional[float] = None
+    total_bookings: Optional[int] = None
 
     class Config:
         from_attributes = True
@@ -100,6 +102,8 @@ class MovieDetail(BaseModel):
     is_active: bool = True
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+    consensus_score: Optional[float] = None
+    total_bookings: Optional[int] = None
 
     class Config:
         from_attributes = True
@@ -126,6 +130,9 @@ class ShowtimeCard(BaseModel):
     member_discount_baht: Optional[float] = None
     total_time_commitment_minutes: int
     risk_adjusted_quality_score: float
+    demand_badge: Optional[str] = None           # selling_fast | filling_up | available | plenty_of_space
+    badge_label: Optional[str] = None            # Display string, None when badge is "available"
+    seats_remaining_percent: Optional[float] = None
 
 
 class MovieShowtimesResponse(BaseModel):
@@ -155,3 +162,23 @@ class QualityScoreResponse(BaseModel):
     rating_count: int
     risk_adjusted_quality_score: float
     score_breakdown: RAQSBreakdown
+
+
+# ── Consensus / Top Picks schemas ─────────────────────────────────────────────
+
+class TopPicksItem(BaseModel):
+    id: int
+    title: str
+    poster_url: Optional[str] = None
+    genre: Optional[List[str]] = None
+    consensus_score: Optional[float] = None
+    total_bookings: Optional[int] = None
+    release_status: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class TopPicksResponse(BaseModel):
+    top_picks: List[TopPicksItem]
+    total: int

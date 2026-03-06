@@ -18,6 +18,8 @@ from app.schemas.booking import (
     AvailableSeat,
     ScreenInfo,
     ExpiryWorkerResponse,
+    GuestBookingRequest,
+    GuestBookingResponse,
 )
 from app.crud.booking import CRUDBooking
 from app.core.supabase import supabase_admin
@@ -31,6 +33,48 @@ crud_booking = CRUDBooking(supabase_admin)
 
 _NOT_FOUND  = "Booking not found"
 _FORBIDDEN  = "Not your booking"
+
+
+# ── Guest booking endpoints (no auth required) ────────────────
+
+@router.post("/guest", response_model=GuestBookingResponse, status_code=status.HTTP_201_CREATED)
+async def create_guest_booking(request: GuestBookingRequest):
+    """Reserve seats for a guest (no account required). Returns a one-time token to access the booking."""
+    reserve_req = ReserveSeatRequest(
+        showtime_id=request.showtime_id,
+        seat_ids=request.seat_ids,
+        price_per_seat=request.price_per_seat,
+        ticket_type=request.ticket_type,
+    )
+    try:
+        result = await crud_booking.reserve_seats(reserve_req, user_id=None)
+    except Exception as e:
+        logger.error(f"guest reserve_seats failed: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+    if not result.get("success"):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=result.get("error", "Failed to reserve seats"),
+        )
+
+    booking_id = str(result["booking_id"])
+    token = await crud_booking.create_guest_session(booking_id, request.email, request.phone)
+    return GuestBookingResponse(
+        booking_id=booking_id,
+        guest_token=token,
+        total_amount=result.get("total_amount", 0.0),
+        payment_deadline=result.get("payment_deadline"),
+    )
+
+
+@router.get("/guest", response_model=BookingDetail)
+async def get_guest_booking(token: str = Query(..., description="Guest session token")):
+    """Retrieve a guest booking using the one-time token."""
+    booking = await crud_booking.get_booking_by_guest_token(token)
+    if not booking:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Booking not found or token expired")
+    return booking
 
 
 # ── Create / reserve seats ────────────────────────────────────

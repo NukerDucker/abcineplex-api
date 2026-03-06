@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from datetime import datetime
 from typing import Any, List, Optional
 from enum import Enum
@@ -9,6 +9,32 @@ class BookingStatus(str, Enum):
     CONFIRMED = "confirmed"
     CANCELLED = "cancelled"
     CHANGED   = "changed"
+
+
+# ── Guest booking schemas ─────────────────────────────────────
+
+class GuestBookingRequest(BaseModel):
+    """Used by POST /bookings/guest — no auth required."""
+    showtime_id:    int
+    seat_ids:       List[int] = Field(..., min_length=1, max_length=8)
+    price_per_seat: float
+    ticket_type:    str = "normal"
+    email:          Optional[str] = None
+    phone:          Optional[str] = None
+
+    @model_validator(mode="after")
+    def require_contact(self) -> "GuestBookingRequest":
+        if not self.email and not self.phone:
+            raise ValueError("Guest bookings require at least an email or phone number.")
+        return self
+
+
+class GuestBookingResponse(BaseModel):
+    booking_id:       str
+    guest_token:      str
+    total_amount:     float
+    payment_deadline: Optional[datetime] = None
+    message:          str = "Guest booking created. Use the token to access your booking."
 
 
 # ── Request schemas ───────────────────────────────────────────

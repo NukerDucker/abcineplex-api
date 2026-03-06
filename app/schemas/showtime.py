@@ -85,6 +85,9 @@ class ShowtimeDetail(BaseModel):
     member_discount_baht: Optional[float] = None
     total_time_commitment_minutes: int = 0
     risk_adjusted_quality_score: float = 0.0
+    demand_badge: Optional[str] = None           # selling_fast | filling_up | available | plenty_of_space
+    badge_label: Optional[str] = None            # Display string, None when badge is "available"
+    seats_remaining_percent: Optional[float] = None
 
 
 # ── Seat map schemas ──────────────────────────────────────────────────────────

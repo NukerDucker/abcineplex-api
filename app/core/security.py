@@ -152,6 +152,29 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
     return _current_user_from_jwt(payload, user_id, email)
 
 
+_optional_bearer = HTTPBearer(auto_error=False)
+
+
+async def get_optional_user(
+    credentials: HTTPAuthorizationCredentials | None = Depends(_optional_bearer),
+) -> CurrentUser | None:
+    """Like get_current_user but returns None instead of 401 when no token is supplied."""
+    if not credentials:
+        return None
+    try:
+        payload = _decode_jwt(credentials.credentials)
+        user_id: str = payload.get("sub", "")
+        if not user_id:
+            return None
+        email: str = payload.get("email", "")
+        db_user = await _fetch_db_profile(user_id)
+        if db_user:
+            return _current_user_from_db(db_user, user_id, email)
+        return _current_user_from_jwt(payload, user_id, email)
+    except Exception:
+        return None
+
+
 async def get_admin_user(current_user: CurrentUser = Depends(get_current_user)) -> CurrentUser:
     """Dependency to ensure user is authenticated and has admin privileges"""
     from app.core.exceptions import UnauthorizedException

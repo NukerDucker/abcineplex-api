@@ -10,7 +10,7 @@ class ReviewBase(BaseModel):
 
 
 class ReviewCreate(ReviewBase):
-    pass
+    booking_id: Optional[str] = None  # UUID — ties review to a specific booking
 
 
 class ReviewUpdate(BaseModel):
@@ -30,6 +30,9 @@ class ReviewResponse(BaseModel):
     like_count: int = 0
     created_at: datetime
     updated_at: Optional[datetime] = None
+    booking_id: Optional[str] = None
+    showtime_id: Optional[int] = None
+    showtime_label: Optional[str] = None  # "Sat 1 Mar 2026, 19:00 — Hall A"
 
     class Config:
         from_attributes = True
