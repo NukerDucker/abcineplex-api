@@ -425,10 +425,11 @@ async def list_admin_bookings(
             q = supabase_admin.table("bookings").select(
                 "id, user_id, booking_status, num_tickets, total_amount, final_amount_paid, "
                 "points_redeemed, created_at, updated_at, change_count, "
-                "users!inner(full_name, email), "
+                "users!inner(full_name, email, phone), "
                 "showtimes!bookings_showtime_id_fkey(id, start_time, end_time, "
                 "movies(id, title), theatres(name)), "
-                "booking_seats(seat_id, seats(row_label, seat_number))"
+                "booking_seats(seat_id, seats(row_label, seat_number)), "
+                "payments(payment_method, status, created_at)"
             ).order("created_at", desc=True).limit(limit).offset(offset)
             if booking_status:
                 q = q.eq("booking_status", booking_status)
@@ -446,12 +447,19 @@ async def list_admin_bookings(
                 f"{(bs.get('seats') or {}).get('row_label', '')}{(bs.get('seats') or {}).get('seat_number', '')}"
                 for bs in (row.get("booking_seats") or [])
             ]
+            # payments is a list; find the confirmed/succeeded one
+            payments = row.get("payments") or []
+            paid_payment = next(
+                (p for p in payments if p.get("status") in ("succeeded", "completed")),
+                payments[0] if payments else {}
+            )
             bookings.append({
                 "booking_id":       row["id"],
                 "id":               row["id"],
                 "user_id":          row["user_id"],
                 "full_name":        user.get("full_name"),
                 "email":            user.get("email"),
+                "phone":            user.get("phone"),
                 "booking_status":   row["booking_status"],
                 "num_tickets":      row.get("num_tickets"),
                 "total_amount":     row.get("total_amount"),
@@ -466,6 +474,9 @@ async def list_admin_bookings(
                 "seats":            seats,
                 "created_at":       row.get("created_at"),
                 "change_count":     row.get("change_count"),
+                "payment_method":   paid_payment.get("payment_method"),
+                "payment_status":   paid_payment.get("status"),
+                "paid_at":          paid_payment.get("created_at"),
             })
         return {"bookings": bookings, "count": len(bookings)}
     except Exception as e:

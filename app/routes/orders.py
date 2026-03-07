@@ -2,7 +2,7 @@
 Order API Routes
 Handles snack order management endpoints
 """
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from typing import List
 from uuid import UUID
 import asyncio
@@ -101,14 +101,17 @@ async def update_order_status(
     try:
         status = OrderStatus(new_status)
     except ValueError:
-        raise NotFoundException(f"Invalid status: {new_status}")
+        raise HTTPException(status_code=400, detail=f"Invalid status: {new_status}")
 
-    updated = await crud_order.update_order_status(
-        UUID(order_id),
-        status,
-        UUID(current_user.user_id),
-        is_admin=True
-    )
+    try:
+        updated = await crud_order.update_order_status(
+            UUID(order_id),
+            status,
+            UUID(current_user.user_id),
+            is_admin=True
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
     if not updated:
         raise NotFoundException("Order", order_id)
