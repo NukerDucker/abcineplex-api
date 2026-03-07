@@ -54,8 +54,8 @@ async def get_admin_dashboard():
     """Get admin dashboard statistics"""
     from datetime import date, datetime, timezone
     today_str = date.today().isoformat()
-    today_start = f"{today_str}T00:00:00+00:00"
-    today_end = f"{today_str}T23:59:59+00:00"
+    today_start = f"{today_str}T00:00:00+07:00"
+    today_end = f"{today_str}T23:59:59+07:00"
 
     try:
         # Bookings confirmed today (use created_at — updated_at may not be set by RPC)
