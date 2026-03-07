@@ -182,7 +182,7 @@ class CRUDBooking:
                     booking_status   = row["booking_status"],
                     num_tickets      = row.get("num_tickets"),
                     total_amount     = row.get("total_amount", 0),
-                    final_amount_paid= row.get("final_amount_paid"),
+                    final_amount_paid = row.get("final_amount_paid"),
                     points_redeemed  = row.get("points_redeemed"),
                     payment_deadline = row.get("payment_deadline"),
                     created_at       = row.get("created_at"),
