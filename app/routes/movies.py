@@ -40,12 +40,16 @@ def _build_showtime_card(
             pass
 
     theatre_id = st.get("theatre_id")
+    theatre_row = st.get("theatres") or {}
+    theatre_name = theatre_row.get("name") if isinstance(theatre_row, dict) else None
+    if not theatre_name and theatre_id:
+        theatre_name = f"Theatre {theatre_id}"
     available = st.get("available_seats") or 0
     total = st.get("total_seats") or 0
     badge_data = calc_demand_badge(available, total)
     return ShowtimeCard(
         showtime_id=st["id"],
-        theatre_name=f"Theatre {theatre_id}" if theatre_id else None,
+        theatre_name=theatre_name,
         start_time=start_time_str,
         end_time=end_time_str,
         language=st.get("language"),

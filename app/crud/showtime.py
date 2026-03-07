@@ -198,7 +198,7 @@ class CRUDShowtime:
             to_date: End date (ISO format string)
             is_active: None = all showtimes, True = active only, False = inactive only (default: True)
         """
-        query = self.client.table("showtimes").select("*")
+        query = self.client.table("showtimes").select("*, theatres(name)")
         query = query.eq("movie_id", movie_id)
 
         if is_active is not None:
