@@ -10,6 +10,15 @@ from app.schemas.order import OrderCreate, OrderStatus
 from app.core.exceptions import UnauthorizedException
 import asyncio
 
+_VALID_ORDER_TRANSITIONS: dict[str, set] = {
+    "pending":   {"confirmed", "cancelled"},
+    "confirmed": {"preparing", "cancelled"},
+    "preparing": {"ready"},
+    "ready":     {"completed"},
+    "completed": set(),
+    "cancelled": set(),
+}
+
 
 class CRUDOrder:
     """Optimized order CRUD operations"""
@@ -166,6 +175,16 @@ class CRUDOrder:
         """Update order status (admin only)"""
         if not is_admin:
             raise UnauthorizedException()
+
+        current = await self.get_order(order_id, current_user_id, is_admin=True)
+        if not current:
+            return None
+        current_status = current.get("order_status", "")
+        allowed = _VALID_ORDER_TRANSITIONS.get(current_status, set())
+        if status.value not in allowed:
+            raise ValueError(
+                f"Cannot transition order from '{current_status}' to '{status.value}'"
+            )
 
         await asyncio.to_thread(
             lambda: self.client.table("orders")

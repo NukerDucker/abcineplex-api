@@ -176,6 +176,12 @@ async def cancel_booking_post(
     if not current_user.is_admin and str(booking.get("user_id")) != current_user.user_id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=_FORBIDDEN)
 
+    if booking.get("booking_status") == "confirmed" and not current_user.is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only admins can cancel confirmed bookings",
+        )
+
     result = await crud_booking.cancel_booking(request.booking_id)
     return CancelBookingResponse(
         success=result.get("success", False),
@@ -195,6 +201,12 @@ async def cancel_booking_delete(
 
     if not current_user.is_admin and str(booking.get("user_id")) != current_user.user_id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=_FORBIDDEN)
+
+    if booking.get("booking_status") == "confirmed" and not current_user.is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only admins can cancel confirmed bookings",
+        )
 
     result = await crud_booking.cancel_booking(str(booking_id))
     return CancelBookingResponse(
@@ -294,8 +306,8 @@ async def change_showtime(
 
     if b.get("user_id") != current_user.user_id:
         raise HTTPException(status_code=403, detail="Not your booking")
-    if b.get("booking_status") not in ("confirmed", "pending", "changed"):
-        raise HTTPException(status_code=400, detail="Booking cannot be changed in its current status")
+    if b.get("booking_status") != "confirmed":
+        raise HTTPException(status_code=400, detail="Only confirmed bookings can have their showtime changed")
 
     # Enforce change_count limit (1 change maximum)
     if (b.get("change_count") or 0) >= 1:
@@ -344,6 +356,15 @@ async def change_showtime(
         lambda: supabase_admin.table("bookings").update(update_data).eq("id", booking_id).execute()
     )
 
+    # Capture old seat IDs before modifying booking_seats (needed to restore showtime_seats)
+    old_bs_res = await asyncio.to_thread(
+        lambda: supabase_admin.table("booking_seats")
+            .select("seat_id")
+            .eq("booking_id", booking_id)
+            .execute()
+    )
+    old_seat_ids = [row["seat_id"] for row in (old_bs_res.data or [])]
+
     if body.new_seat_ids:
         await asyncio.to_thread(
             lambda: supabase_admin.table("booking_seats").delete().eq("booking_id", booking_id).execute()
@@ -358,6 +379,16 @@ async def change_showtime(
             lambda: supabase_admin.table("booking_seats")
                 .update({"showtime_id": body.new_showtime_id})
                 .eq("booking_id", booking_id)
+                .execute()
+        )
+
+    # Restore old showtime's seats to available (the booking moved away from old_showtime_id)
+    for sid in old_seat_ids:
+        await asyncio.to_thread(
+            lambda s=sid: supabase_admin.table("showtime_seats")
+                .update({"is_available": True})
+                .eq("showtime_id", old_showtime_id)
+                .eq("seat_id", s)
                 .execute()
         )
 
@@ -472,6 +503,24 @@ async def change_seat(
         taken = {row["seat_id"] for row in (taken_res.data or [])}
         if taken:
             raise HTTPException(status_code=409, detail=f"Seats {sorted(taken)} are not available")
+
+    # Reject seats disabled by admin via showtime_seats.is_available
+    ss_avail_res = await asyncio.to_thread(
+        lambda: supabase_admin.table("showtime_seats")
+            .select("seat_id, is_available")
+            .eq("showtime_id", b["showtime_id"])
+            .in_("seat_id", body.new_seat_ids)
+            .execute()
+    )
+    admin_disabled = {
+        row["seat_id"] for row in (ss_avail_res.data or [])
+        if not row.get("is_available", True)
+    }
+    if admin_disabled:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Seats {sorted(admin_disabled)} are disabled for this showtime",
+        )
 
     # Swap booking_seats
     await asyncio.to_thread(

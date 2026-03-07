@@ -68,6 +68,27 @@ async def deactivate_expired_showtimes_task():
         raise
 
 
+async def promote_now_showing_task():
+    """Promote movies whose release_date has passed from 'upcoming' to 'now_showing'."""
+    from datetime import date
+    today = date.today().isoformat()
+    try:
+        result = await asyncio.to_thread(
+            lambda: supabase.table("movies")
+                .update({"release_status": "now_showing"})
+                .eq("release_status", "upcoming")
+                .lte("release_date", today)
+                .execute()
+        )
+        count = len(result.data or [])
+        if count > 0:
+            logger.info(f"Promoted {count} movie(s) to now_showing")
+        else:
+            logger.info("No movies to promote")
+    except Exception as e:
+        logger.error(f"Error promoting movies to now_showing: {e}")
+
+
 async def run_worker(interval_seconds: int = 60):
     """
     Run the expiry worker in an infinite loop.
@@ -85,6 +106,9 @@ async def run_worker(interval_seconds: int = 60):
 
             # Deactivate expired showtimes (ran 40+ minutes ago)
             await deactivate_expired_showtimes_task()
+
+            # Promote movies whose release date has passed
+            await promote_now_showing_task()
 
         except Exception as e:
             logger.error(f"Worker error: {e}")

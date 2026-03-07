@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional
 from supabase import Client
 from app.schemas.booking import (
     BookingDetail,
+    BookingStatus,
     ReserveSeatRequest,
     AvailableSeat,
     ScreenInfo,
@@ -186,6 +187,8 @@ class CRUDBooking:
 
     async def update_booking_status(self, booking_id: str, status: str) -> Optional[Dict[str, Any]]:
         """Admin: directly update booking status."""
+        if status not in {s.value for s in BookingStatus}:
+            raise ValueError(f"Invalid booking status: {status!r}")
         try:
             res = await asyncio.to_thread(
                 lambda: self.client.table("bookings")

@@ -88,7 +88,7 @@ async def _fetch_db_profile(user_id: str) -> dict | None:
     try:
         result = await asyncio.to_thread(
             lambda: supabase_admin.table("users")
-                .select("id, email, full_name, user_name, loyalty_points, is_admin")
+                .select("id, email, full_name, user_name, loyalty_points, is_admin, is_active")
                 .eq("id", user_id)
                 .limit(1)
                 .execute()
@@ -144,6 +144,8 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
     db_user = await _fetch_db_profile(user_id)
 
     if db_user:
+        if not db_user.get("is_active", True):
+            raise AuthenticationException("Account has been deactivated")
         logger.debug(f"[security] Returning CurrentUser from DB — user_id={user_id}, is_admin={db_user.get('is_admin')}")
         return _current_user_from_db(db_user, user_id, email)
 
@@ -169,6 +171,8 @@ async def get_optional_user(
         email: str = payload.get("email", "")
         db_user = await _fetch_db_profile(user_id)
         if db_user:
+            if not db_user.get("is_active", True):
+                return None
             return _current_user_from_db(db_user, user_id, email)
         return _current_user_from_jwt(payload, user_id, email)
     except Exception:

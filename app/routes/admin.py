@@ -85,7 +85,7 @@ async def get_admin_dashboard():
         up_res = await asyncio.to_thread(
             lambda: supabase_admin.table("movies")
                 .select("id", count="exact")
-                .eq("release_status", "coming_soon")
+                .eq("release_status", "upcoming")
                 .execute()
         )
         upcoming_movies = up_res.count or 0
@@ -270,7 +270,7 @@ async def delete_admin_movie(movie_id: int):
     """Remove a movie listing (soft delete: set release_status to 'ended')"""
     res = await asyncio.to_thread(
         lambda: supabase_admin.table("movies")
-            .update({"release_status": "ended"})
+            .update({"release_status": "ended", "is_active": False})
             .eq("id", movie_id)
             .execute()
     )
@@ -429,7 +429,9 @@ async def update_admin_booking(
     if body.new_showtime_id:
         update_data["showtime_id"] = body.new_showtime_id
         update_data["original_showtime_id"] = b["showtime_id"]
-        update_data["booking_status"] = "changed"
+        # Only promote to 'changed' if already confirmed — pending stays pending
+        if b.get("booking_status") == "confirmed":
+            update_data["booking_status"] = "changed"
 
     if update_data:
         await asyncio.to_thread(

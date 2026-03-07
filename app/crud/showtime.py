@@ -351,12 +351,16 @@ class CRUDShowtime:
             is_seat_disabled = not seat.get("is_active", True)
             is_showtime_unavailable = not showtime_seat_availability.get(sid, True)
 
-            if is_seat_disabled or is_showtime_unavailable:
+            if is_seat_disabled:
                 computed = "disabled"
             elif sid in booked_seat_ids:
+                # Confirmed booking takes priority — even if RPC set is_available=false
                 computed = "booked"
             elif sid in held_seat_ids:
                 computed = "held"
+            elif is_showtime_unavailable:
+                # Admin-blocked seat (no booking exists)
+                computed = "disabled"
             else:
                 computed = "available"
 

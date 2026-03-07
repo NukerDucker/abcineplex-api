@@ -174,16 +174,50 @@ async def hold_seats(
     # Release any stale holds before checking availability
     await crud_booking.release_expired_reservations()
 
-    # Get base_price from showtime to satisfy RPC requirement
     showtime = await crud_showtime.get_by_id(showtime_id)
     if not showtime:
         raise NotFoundException("Showtime", str(showtime_id))
 
-    # Use student price when ticket_type is 'student', fall back to normal
+    base_price = float(showtime.get("base_price") or 0)
+
+    # Fetch movie discount flags
+    movie_id = showtime.get("movie_id")
+    movie: dict = {}
+    if movie_id:
+        movie_res = await asyncio.to_thread(
+            lambda: supabase_admin.table("movies")
+                .select("allow_student_discount, allow_member_discount")
+                .eq("id", movie_id)
+                .maybe_single()
+                .execute()
+        )
+        movie = movie_res.data or {}
+
+    # Fetch calling user's eligibility fields from DB (never trust client-supplied values)
+    user_res = await asyncio.to_thread(
+        lambda: supabase_admin.table("users")
+            .select("is_student, student_id_verified, membership_tier")
+            .eq("id", current_user.user_id)
+            .maybe_single()
+            .execute()
+    )
+    user = user_res.data or {}
+
+    # Compute price per spec: student > member > normal
     if body.ticket_type == 'student':
-        price = float(showtime.get("base_price") or 0) - float(showtime.get("student_discount_baht") or 0)
+        is_eligible_student = bool(user.get("is_student")) and bool(user.get("student_id_verified"))
+        movie_allows_discount = bool(movie.get("allow_student_discount"))
+        if not is_eligible_student or not movie_allows_discount:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Not eligible for student discount on this movie",
+            )
+        price = base_price - float(showtime.get("student_discount_baht") or 0)
+    elif (user.get("membership_tier") or "free") != "free" and movie.get("allow_member_discount"):
+        # Member discount applied automatically for eligible members buying normal tickets
+        price = base_price - float(showtime.get("member_discount_baht") or 0)
     else:
-        price = float(showtime.get("base_price") or 0)
+        price = base_price
 
     req = ReserveSeatRequest(
         showtime_id=showtime_id,
