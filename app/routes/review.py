@@ -94,8 +94,8 @@ async def _resolve_booking_context(booking_id: str, user_id: str) -> dict:
     return extras
 
 
-async def _award_review_points(user_id: str) -> None:
-    """Award 20 loyalty points for submitting a review. Best-effort — never raises."""
+async def _award_review_points(user_id: str, review_id: Optional[int] = None) -> None:
+    """Award 20 loyalty points and set points_awarded flag on the review. Best-effort — never raises."""
     try:
         user_res = await asyncio.to_thread(
             lambda: supabase_admin.table("users")
@@ -110,6 +110,13 @@ async def _award_review_points(user_id: str) -> None:
                 lambda: supabase_admin.table("users")
                     .update({"loyalty_points": new_pts})
                     .eq("id", user_id)
+                    .execute()
+            )
+        if review_id:
+            await asyncio.to_thread(
+                lambda: supabase_admin.table("movie_reviews")
+                    .update({"points_awarded": True})
+                    .eq("id", review_id)
                     .execute()
             )
     except Exception:
@@ -132,7 +139,8 @@ async def create_review(
 
     try:
         result = await crud_review.create(review_data, user_id=current_user.user_id)
-        await _award_review_points(current_user.user_id)
+        review_id = result.id if hasattr(result, "id") else None
+        await _award_review_points(current_user.user_id, review_id)
         return result
     except ValueError as e:
         err = str(e)
@@ -285,7 +293,8 @@ async def create_review_spec(
 
     try:
         result = await crud_review.create(review_data, user_id=current_user.user_id)
-        await _award_review_points(current_user.user_id)
+        spec_review_id = result.id if hasattr(result, "id") else None
+        await _award_review_points(current_user.user_id, spec_review_id)
         return result
     except ValueError as e:
         err = str(e)
