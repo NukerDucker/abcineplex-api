@@ -106,29 +106,70 @@ class CRUDBooking:
             return None
 
     async def get_booking_details(self, booking_id: str) -> Optional[BookingDetail]:
-        """Fetch enriched booking detail (movie, theatre, seats, QR codes)."""
+        """Fetch enriched booking detail (movie, theatre, seats, QR codes).
+
+        Queries bookings directly with embedded joins instead of the booking_details
+        view, which produces duplicate rows when a booking has multiple seats/tickets.
+        """
         try:
             res = await asyncio.to_thread(
-                lambda: self.client.from_("booking_details")
-                    .select("*")
-                    .eq("booking_id", str(booking_id))
-                    .single()
+                lambda: self.client.table("bookings")
+                    .select(
+                        "id, user_id, booking_status, num_tickets, "
+                        "total_amount, final_amount_paid, points_redeemed, "
+                        "payment_deadline, created_at, updated_at, change_count, "
+                        "showtimes!bookings_showtime_id_fkey(id, start_time, "
+                        "movies(title, poster_url), "
+                        "theatres(name)"
+                        "), "
+                        "booking_seats(seat_id, seats(row_label, seat_number))"
+                    )
+                    .eq("id", str(booking_id))
+                    .limit(1)
                     .execute()
             )
             if not res.data:
                 return None
-            data: Dict[str, Any] = dict(res.data)
 
-            # Attach tickets if confirmed — each ticket now carries ticket_type
-            if data.get("booking_status") == "confirmed":
+            row      = res.data[0]
+            showtime = row.get("showtimes") or {}
+            movie    = showtime.get("movies") or {}
+            theatre  = showtime.get("theatres") or {}
+            seats    = [
+                f"{(bs.get('seats') or {}).get('row_label', '')}{(bs.get('seats') or {}).get('seat_number', '')}"
+                for bs in (row.get("booking_seats") or [])
+            ]
+
+            detail = BookingDetail(
+                booking_id        = row["id"],
+                user_id           = row["user_id"],
+                booking_status    = row["booking_status"],
+                num_tickets       = row.get("num_tickets"),
+                total_amount      = row.get("total_amount", 0),
+                final_amount_paid = row.get("final_amount_paid"),
+                points_redeemed   = row.get("points_redeemed"),
+                payment_deadline  = row.get("payment_deadline"),
+                created_at        = row.get("created_at"),
+                updated_at        = row.get("updated_at"),
+                change_count      = row.get("change_count", 0),
+                showtime_id       = showtime.get("id", 0),
+                showtime_start    = showtime.get("start_time"),
+                movie_title       = movie.get("title"),
+                poster_url        = movie.get("poster_url"),
+                screen_name       = theatre.get("name"),
+                seats             = seats,
+            )
+
+            # Attach tickets if confirmed — each ticket carries ticket_type + QR slug
+            if detail.booking_status == "confirmed":
                 tickets = await self.get_tickets_for_booking(booking_id)
-                data["tickets"] = tickets or None
+                detail.tickets = tickets or None
                 if tickets:
-                    data["qr_code_data"] = ",".join(
+                    detail.qr_code_data = ",".join(
                         t["qr_code_slug"] for t in tickets if t.get("qr_code_slug")
                     ) or None
 
-            return BookingDetail(**data)
+            return detail
         except Exception as e:
             logger.error(f"get_booking_details error: {e}")
             return None
@@ -145,12 +186,12 @@ class CRUDBooking:
                 q = (
                     self.client.table("bookings")
                         .select(
-                            "booking_id, user_id, booking_status, num_tickets, "
+                            "id, user_id, booking_status, num_tickets, "
                             "total_amount, final_amount_paid, points_redeemed, "
                             "payment_deadline, created_at, updated_at, change_count, "
-                            "showtimes!inner(id, start_time, "
-                            "  movies(title, poster_url), "
-                            "  theatres(name)"
+                            "showtimes!bookings_showtime_id_fkey(id, start_time, "
+                            "movies(title, poster_url), "
+                            "theatres(name)"
                             "), "
                             "booking_seats(seat_id, seats(row_label, seat_number))"
                         )
@@ -177,7 +218,7 @@ class CRUDBooking:
                     for bs in (row.get("booking_seats") or [])
                 ]
                 bookings.append(BookingDetail(
-                    booking_id       = row["booking_id"],
+                    booking_id       = row["id"],
                     user_id          = row["user_id"],
                     booking_status   = row["booking_status"],
                     num_tickets      = row.get("num_tickets"),
@@ -195,7 +236,6 @@ class CRUDBooking:
                     screen_name      = theatre.get("name"),
                     seats            = seats,
                 ))
-            print(bookings)
             return bookings
         except Exception as e:
             logger.error(f"get_user_bookings error: {e}")

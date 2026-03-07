@@ -125,7 +125,7 @@ class BookingDetail(BaseModel):
     updated_at:       Optional[datetime]       = None
     showtime_id:      int
     screen_name:      Optional[str]            = None
-    seats:            Optional[List[dict]]     = None
+    seats:            Optional[List[Any]]      = None
     movie_title:      Optional[str]            = None
     poster_url:       Optional[str]            = None
     showtime_start:   Optional[Any]            = None

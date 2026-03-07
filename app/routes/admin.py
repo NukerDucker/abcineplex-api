@@ -98,21 +98,89 @@ async def get_admin_dashboard():
         )
         total_users = users_res.count or 0
 
-        # Seat fill: active showtimes today
+        # Seat fill: count showtime_seats for today's showtimes via theatres.total_seats
         seats_filled_percent = 0.0
         st_res = await asyncio.to_thread(
             lambda: supabase_admin.table("showtimes")
-                .select("id, total_seats, available_seats")
-                .eq("is_active", True)
+                .select("id, theatres(total_seats)")
                 .gte("start_time", today_start)
                 .lte("start_time", today_end)
                 .execute()
         )
         if st_res.data:
-            total_seats = sum(int(s.get("total_seats") or 0) for s in st_res.data)
-            avail_seats = sum(int(s.get("available_seats") or 0) for s in st_res.data)
-            if total_seats > 0:
-                seats_filled_percent = round((1 - avail_seats / total_seats) * 100, 1)
+            showtime_ids = [s["id"] for s in st_res.data]
+            total_seats = sum(
+                int((s.get("theatres") or {}).get("total_seats") or 0)
+                for s in st_res.data
+            )
+            if total_seats > 0 and showtime_ids:
+                # Count booked seats (is_available=false) across these showtimes
+                booked_res = await asyncio.to_thread(
+                    lambda: supabase_admin.table("showtime_seats")
+                        .select("seat_id", count="exact")
+                        .in_("showtime_id", showtime_ids)
+                        .eq("is_available", False)
+                        .execute()
+                )
+                booked = booked_res.count or 0
+                seats_filled_percent = round((booked / total_seats) * 100, 1)
+
+        # All-time confirmed bookings + revenue
+        all_bk_res = await asyncio.to_thread(
+            lambda: supabase_admin.table("bookings")
+                .select("final_amount_paid", count="exact")
+                .eq("booking_status", "confirmed")
+                .execute()
+        )
+        total_confirmed_bookings = all_bk_res.count or 0
+        total_revenue_alltime = sum(
+            float(r.get("final_amount_paid") or 0) for r in (all_bk_res.data or [])
+        )
+
+        # Pending bookings count
+        pending_res = await asyncio.to_thread(
+            lambda: supabase_admin.table("bookings")
+                .select("id", count="exact")
+                .eq("booking_status", "pending")
+                .execute()
+        )
+        pending_bookings = pending_res.count or 0
+
+        # Snack orders confirmed today
+        snack_res = await asyncio.to_thread(
+            lambda: supabase_admin.table("orders")
+                .select("total_amount", count="exact")
+                .eq("order_status", "confirmed")
+                .gte("created_at", today_start)
+                .lte("created_at", today_end)
+                .execute()
+        )
+        snack_orders_today = snack_res.count or 0
+        snack_revenue_today = sum(
+            float(r.get("total_amount") or 0) for r in (snack_res.data or [])
+        )
+
+        # Recent 5 confirmed bookings
+        recent_res = await asyncio.to_thread(
+            lambda: supabase_admin.table("bookings")
+                .select(
+                    "id, total_amount, created_at, "
+                    "showtimes!bookings_showtime_id_fkey(movies(title))"
+                )
+                .eq("booking_status", "confirmed")
+                .order("created_at", desc=True)
+                .limit(5)
+                .execute()
+        )
+        recent_bookings = [
+            {
+                "id": r["id"],
+                "movie_title": ((r.get("showtimes") or {}).get("movies") or {}).get("title"),
+                "total_amount": float(r.get("total_amount") or 0),
+                "created_at": r.get("created_at"),
+            }
+            for r in (recent_res.data or [])
+        ]
 
         return {
             "total_bookings_today": total_bookings_today,
@@ -121,6 +189,12 @@ async def get_admin_dashboard():
             "upcoming_movies": upcoming_movies,
             "total_users": total_users,
             "seats_filled_percent": seats_filled_percent,
+            "total_confirmed_bookings": total_confirmed_bookings,
+            "total_revenue_alltime": round(total_revenue_alltime, 2),
+            "pending_bookings": pending_bookings,
+            "snack_orders_today": snack_orders_today,
+            "snack_revenue_today": round(snack_revenue_today, 2),
+            "recent_bookings": recent_bookings,
         }
     except Exception as e:
         logger.error(f"Error fetching dashboard stats: {e}")
