@@ -11,7 +11,7 @@ from app.core.exceptions import UnauthorizedException
 import asyncio
 
 _VALID_ORDER_TRANSITIONS: dict[str, set] = {
-    "pending":   {"confirmed", "cancelled"},
+    "pending":   {"confirmed", "preparing", "cancelled"},
     "confirmed": {"preparing", "cancelled"},
     "preparing": {"ready"},
     "ready":     {"completed"},

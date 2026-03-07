@@ -419,14 +419,54 @@ async def list_admin_bookings(
     limit: int = Query(100, ge=1, le=1000),
     offset: int = Query(0, ge=0)
 ):
-    """List all bookings with filters"""
+    """List all bookings with user name/email."""
     try:
-        # TODO: Implement filtered booking list from CRUD
-        # - Filter by user_id if provided
-        # - Filter by showtime_id if provided
-        # - Filter by booking_status if provided
-        # - Filter by date if provided
-        bookings = await crud_booking.get_all_bookings(booking_status, limit, offset)
+        def _fetch():
+            q = supabase_admin.table("bookings").select(
+                "id, user_id, booking_status, num_tickets, total_amount, final_amount_paid, "
+                "points_redeemed, created_at, updated_at, change_count, "
+                "users!inner(full_name, email), "
+                "showtimes!bookings_showtime_id_fkey(id, start_time, end_time, "
+                "movies(id, title), theatres(name)), "
+                "booking_seats(seat_id, seats(row_label, seat_number))"
+            ).order("created_at", desc=True).limit(limit).offset(offset)
+            if booking_status:
+                q = q.eq("booking_status", booking_status)
+            return q.execute()
+
+        res = await asyncio.to_thread(_fetch)
+
+        bookings = []
+        for row in (res.data or []):
+            user     = row.get("users") or {}
+            showtime = row.get("showtimes") or {}
+            movie    = showtime.get("movies") or {}
+            theatre  = showtime.get("theatres") or {}
+            seats = [
+                f"{(bs.get('seats') or {}).get('row_label', '')}{(bs.get('seats') or {}).get('seat_number', '')}"
+                for bs in (row.get("booking_seats") or [])
+            ]
+            bookings.append({
+                "booking_id":       row["id"],
+                "id":               row["id"],
+                "user_id":          row["user_id"],
+                "full_name":        user.get("full_name"),
+                "email":            user.get("email"),
+                "booking_status":   row["booking_status"],
+                "num_tickets":      row.get("num_tickets"),
+                "total_amount":     row.get("total_amount"),
+                "final_amount_paid":row.get("final_amount_paid"),
+                "points_redeemed":  row.get("points_redeemed"),
+                "showtime_id":      showtime.get("id"),
+                "showtime_start":   showtime.get("start_time"),
+                "showtime_end":     showtime.get("end_time"),
+                "movie_title":      movie.get("title"),
+                "movie_id":         movie.get("id"),
+                "screen_name":      theatre.get("name"),
+                "seats":            seats,
+                "created_at":       row.get("created_at"),
+                "change_count":     row.get("change_count"),
+            })
         return {"bookings": bookings, "count": len(bookings)}
     except Exception as e:
         logger.error(f"Error fetching bookings: {e}")
@@ -434,6 +474,56 @@ async def list_admin_bookings(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to fetch bookings"
         )
+
+
+# ========== Snack Order Management ==========
+
+@router.get("/orders")
+async def list_admin_orders(
+    order_status: Optional[str] = Query(None),
+    limit: int = Query(100, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
+):
+    """List all snack orders with user name/email."""
+    try:
+        def _fetch():
+            q = supabase_admin.table("orders").select(
+                "id, user_id, order_status, total_amount, created_at, "
+                "users!fk_orders_user_id_users_id(email, full_name), "
+                "order_items(product_id, quantity, unit_price)"
+            ).order("created_at", desc=True).limit(limit).offset(offset)
+            if order_status:
+                q = q.eq("order_status", order_status)
+            return q.execute()
+
+        res = await asyncio.to_thread(_fetch)
+
+        orders = []
+        for row in (res.data or []):
+            user = row.get("users") or {}
+            items = [
+                {
+                    "product_id": item["product_id"],
+                    "quantity":   item["quantity"],
+                    "unit_price": float(item.get("unit_price") or 0),
+                    "subtotal":   item["quantity"] * float(item.get("unit_price") or 0),
+                }
+                for item in (row.get("order_items") or [])
+            ]
+            orders.append({
+                "id":             row["id"],
+                "user_id":        row["user_id"],
+                "user_email":     user.get("email"),
+                "user_full_name": user.get("full_name"),
+                "status":         row["order_status"],
+                "total_amount":   row["total_amount"],
+                "items":          items,
+                "created_at":     row["created_at"],
+            })
+        return {"orders": orders, "count": len(orders)}
+    except Exception as e:
+        logger.error(f"list_admin_orders error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch orders")
 
 
 class AdminBookingUpdate(BaseModel):
@@ -694,7 +784,7 @@ async def list_admin_point_transactions(
         def _fetch():
             q = supabase_admin.table("membership_transactions").select(
                 "id, user_id, points_delta, reason, reference_id, created_at, "
-                "users!inner(email, full_name)",
+                "users!fk_membership_transactions_user_id_users_id(email, full_name)",
                 count="exact",
             )
             if user_id:
