@@ -257,7 +257,8 @@ class CRUDShowtime:
             lambda: self.client.table("showtimes")
                 .select(
                     "*, "
-                    "movies(id, title, duration_minutes, imdb_score, rating_count, release_date, credits_duration_minutes)"
+                    "movies(id, title, duration_minutes, imdb_score, rating_count, release_date, credits_duration_minutes), "
+                    "theatres(name)"
                 )
                 .eq("id", showtime_id)
                 .maybe_single()

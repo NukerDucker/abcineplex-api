@@ -9,7 +9,7 @@ from app.crud.showtime import CRUDShowtime
 from app.crud.booking import CRUDBooking
 from app.schemas.showtime import (
     Showtime, ShowtimeCreate, ShowtimeUpdate,
-    ShowtimeDetail, MovieRef, TheatreRef,
+    ShowtimeDetail, MovieRef, TheatreRef, TicketPrices,
     SeatMapResponse, SeatLayout, SeatInMap,
     TimeCommitmentResponse, TTCComponents,
 )
@@ -87,19 +87,29 @@ async def get_showtime(showtime_id: int):
 
     badge_data = calc_demand_badge(available or 0, total_seats or 0)
 
+    normal_price = float(raw.get("base_price") or 0.0)
+    student_discount = raw.get("student_discount_baht")
+    student_price = round(normal_price - float(student_discount or 0), 2) if student_discount is not None else None
+
+    theatre_row = raw.get("theatres") or {}
+    theatre_name = theatre_row.get("name") if isinstance(theatre_row, dict) else None
+    if not theatre_name and theatre_id:
+        theatre_name = f"Theatre {theatre_id}"
+
     return ShowtimeDetail(
         id=raw["id"],
         movie=MovieRef(id=movie_row.get("id", 0), title=movie_row.get("title", ""), runtime_minutes=runtime) if movie_row else None,
-        theatre=TheatreRef(id=theatre_id, name=f"Theatre {theatre_id}") if theatre_id else None,
+        theatre=TheatreRef(id=theatre_id, name=theatre_name) if theatre_id else None,
         start_time=start_dt,
         end_time=end_dt,
         estimated_end_with_credits=end_credits_dt,
         language=raw.get("language"),
         available_seats=available,
         total_seats=total_seats,
-        base_price=raw.get("base_price") or 0.0,
-        student_discount_baht=raw.get("student_discount_baht"),
+        base_price=normal_price,
+        student_discount_baht=student_discount,
         member_discount_baht=raw.get("member_discount_baht"),
+        ticket_prices=TicketPrices(normal=normal_price, student=student_price),
         total_time_commitment_minutes=ttc,
         risk_adjusted_quality_score=raqs,
         **badge_data,

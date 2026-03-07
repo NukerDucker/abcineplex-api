@@ -69,6 +69,11 @@ class PricingInfo(BaseModel):
     member_discount_baht: Optional[float] = None
 
 
+class TicketPrices(BaseModel):
+    normal: float
+    student: Optional[float] = None
+
+
 class ShowtimeDetail(BaseModel):
     """Full showtime detail per spec § 5.4."""
     id: int
@@ -83,6 +88,7 @@ class ShowtimeDetail(BaseModel):
     base_price: float = 0.0
     student_discount_baht: Optional[float] = None
     member_discount_baht: Optional[float] = None
+    ticket_prices: Optional[TicketPrices] = None
     total_time_commitment_minutes: int = 0
     risk_adjusted_quality_score: float = 0.0
     demand_badge: Optional[str] = None           # selling_fast | filling_up | available | plenty_of_space
