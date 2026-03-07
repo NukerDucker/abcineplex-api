@@ -58,18 +58,19 @@ async def get_admin_dashboard():
     today_end = f"{today_str}T23:59:59+00:00"
 
     try:
-        # Bookings confirmed today
+        # Bookings confirmed today (use created_at — updated_at may not be set by RPC)
         bk_res = await asyncio.to_thread(
             lambda: supabase_admin.table("bookings")
-                .select("total_amount", count="exact")
+                .select("total_amount, final_amount_paid", count="exact")
                 .eq("booking_status", "confirmed")
-                .gte("updated_at", today_start)
-                .lte("updated_at", today_end)
+                .gte("created_at", today_start)
+                .lte("created_at", today_end)
                 .execute()
         )
         total_bookings_today = bk_res.count or 0
         revenue_today = sum(
-            float(r.get("total_amount") or 0) for r in (bk_res.data or [])
+            float(r.get("final_amount_paid") or r.get("total_amount") or 0)
+            for r in (bk_res.data or [])
         )
 
         # Movies now showing
