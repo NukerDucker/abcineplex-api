@@ -30,10 +30,10 @@ class CRUDShowtime:
             lambda: self.client.table("movies")
                 .select("runtime_minutes, duration_minutes, credits_duration_minutes, audio_languages, subtitle_languages")
                 .eq("id", showtime.movie_id)
-                .maybe_single()
+                .limit(1)
                 .execute()
         )
-        movie = movie_resp.data or {}
+        movie = (movie_resp.data or [None])[0] or {}
         runtime: int = int(movie.get("runtime_minutes") or movie.get("duration_minutes") or 120)
         credits_min: int = int(movie.get("credits_duration_minutes") or 5)
         new_end: datetime = new_start + timedelta(minutes=runtime + credits_min)
