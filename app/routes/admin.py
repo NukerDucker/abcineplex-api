@@ -267,11 +267,14 @@ async def update_admin_movie(movie_id: int, movie: MovieUpdate):
 
 @router.delete("/movies/{movie_id}")
 async def delete_admin_movie(movie_id: int):
-    """Remove a movie listing (soft delete: set status to ended)"""
-    # TODO: Implement soft delete logic
-    # - Set release_status = 'ended' instead of hard delete
-    success = await crud_movie.delete(movie_id)
-    if not success:
+    """Remove a movie listing (soft delete: set release_status to 'ended')"""
+    res = await asyncio.to_thread(
+        lambda: supabase_admin.table("movies")
+            .update({"release_status": "ended"})
+            .eq("id", movie_id)
+            .execute()
+    )
+    if not res.data:
         raise NotFoundException("Movie", str(movie_id))
     return {"message": "Movie removed"}
 
@@ -319,10 +322,13 @@ async def update_admin_showtime(showtime_id: int, showtime: ShowtimeUpdate):
 @router.delete("/showtimes/{showtime_id}")
 async def delete_admin_showtime(showtime_id: int):
     """Cancel/remove a showtime (soft delete: set is_active = false)"""
-    # TODO: Implement soft delete logic
-    # - Set is_active = false instead of hard delete
-    success = await crud_showtime.delete(showtime_id)
-    if not success:
+    res = await asyncio.to_thread(
+        lambda: supabase_admin.table("showtimes")
+            .update({"is_active": False})
+            .eq("id", showtime_id)
+            .execute()
+    )
+    if not res.data:
         raise NotFoundException("Showtime", str(showtime_id))
     return {"message": "Showtime cancelled"}
 
