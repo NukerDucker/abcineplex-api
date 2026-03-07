@@ -50,23 +50,77 @@ crud_showtime_seat = CRUDShowtimeSeat(supabase_admin)
 # ========== Dashboard ==========
 
 @router.get("/dashboard")
-async def get_admin_dashboard(current_user: CurrentUser = Depends(get_admin_user)):
+async def get_admin_dashboard():
     """Get admin dashboard statistics"""
+    from datetime import date, datetime, timezone
+    today_str = date.today().isoformat()
+    today_start = f"{today_str}T00:00:00+00:00"
+    today_end = f"{today_str}T23:59:59+00:00"
+
     try:
-        # TODO: Implement dashboard stats aggregation from DB
-        # - Total bookings today
-        # - Revenue today
-        # - Movies now showing count
-        # - Upcoming movies count
-        # - Total users
-        # - Seat fill percentage
+        # Bookings confirmed today
+        bk_res = await asyncio.to_thread(
+            lambda: supabase_admin.table("bookings")
+                .select("total_amount", count="exact")
+                .eq("booking_status", "confirmed")
+                .gte("updated_at", today_start)
+                .lte("updated_at", today_end)
+                .execute()
+        )
+        total_bookings_today = bk_res.count or 0
+        revenue_today = sum(
+            float(r.get("total_amount") or 0) for r in (bk_res.data or [])
+        )
+
+        # Movies now showing
+        now_res = await asyncio.to_thread(
+            lambda: supabase_admin.table("movies")
+                .select("id", count="exact")
+                .eq("release_status", "now_showing")
+                .execute()
+        )
+        movies_now_showing = now_res.count or 0
+
+        # Upcoming movies
+        up_res = await asyncio.to_thread(
+            lambda: supabase_admin.table("movies")
+                .select("id", count="exact")
+                .eq("release_status", "coming_soon")
+                .execute()
+        )
+        upcoming_movies = up_res.count or 0
+
+        # Total users
+        users_res = await asyncio.to_thread(
+            lambda: supabase_admin.table("users")
+                .select("id", count="exact")
+                .execute()
+        )
+        total_users = users_res.count or 0
+
+        # Seat fill: active showtimes today
+        seats_filled_percent = 0.0
+        st_res = await asyncio.to_thread(
+            lambda: supabase_admin.table("showtimes")
+                .select("id, total_seats, available_seats")
+                .eq("is_active", True)
+                .gte("start_time", today_start)
+                .lte("start_time", today_end)
+                .execute()
+        )
+        if st_res.data:
+            total_seats = sum(int(s.get("total_seats") or 0) for s in st_res.data)
+            avail_seats = sum(int(s.get("available_seats") or 0) for s in st_res.data)
+            if total_seats > 0:
+                seats_filled_percent = round((1 - avail_seats / total_seats) * 100, 1)
+
         return {
-            "total_bookings_today": 0,
-            "revenue_today": 0,
-            "movies_now_showing": 0,
-            "upcoming_movies": 0,
-            "total_users": 0,
-            "seats_filled_percent": 0.0
+            "total_bookings_today": total_bookings_today,
+            "revenue_today": round(revenue_today, 2),
+            "movies_now_showing": movies_now_showing,
+            "upcoming_movies": upcoming_movies,
+            "total_users": total_users,
+            "seats_filled_percent": seats_filled_percent,
         }
     except Exception as e:
         logger.error(f"Error fetching dashboard stats: {e}")
