@@ -150,7 +150,9 @@ async def get_movie_showtimes(
         day_key = raw_start[:10] if raw_start else "unknown"
         card = _build_showtime_card(st, runtime, credits_min, ttc, raqs)
         by_date.setdefault(day_key, []).append(card)
-        furthest = day_key
+        # Only advance furthest_available_date when this showtime has at least 1 seat free
+        if (st.get("available_seats") or 0) > 0:
+            furthest = day_key
 
     return MovieShowtimesResponse(
         movie_id=movie_id,
