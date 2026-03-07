@@ -136,3 +136,22 @@ class AdminUserUpdate(BaseModel):
     is_active: Optional[bool] = None
     is_student: Optional[bool] = None
     student_id_verified: Optional[bool] = None
+
+
+class AdminPointTransaction(BaseModel):
+    """A single membership_transactions row with user info for admin view."""
+    id: Any
+    user_id: str
+    user_email: str
+    user_full_name: Optional[str] = None
+    points_delta: int
+    reason: str
+    reference_id: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AdminPointTransactionsResponse(BaseModel):
+    transactions: List["AdminPointTransaction"]
+    total: int

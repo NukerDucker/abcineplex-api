@@ -500,13 +500,35 @@ async def confirm_payment(
                 .eq("id", payment_id)
                 .execute()
         )
+
+        # Award 1 loyalty point per 10 baht spent on snacks
+        snack_points_earned = 0
+        if current_user:
+            snack_points_earned = int(snack_amount / 10)
+            if snack_points_earned > 0:
+                pts_res = await asyncio.to_thread(
+                    lambda: supabase_admin.table("users")
+                        .select("loyalty_points")
+                        .eq("id", current_user.user_id)
+                        .maybe_single()
+                        .execute()
+                )
+                current_pts = (pts_res.data or {}).get("loyalty_points", 0) or 0
+                await asyncio.to_thread(
+                    lambda: supabase_admin.table("users")
+                        .update({"loyalty_points": current_pts + snack_points_earned})
+                        .eq("id", current_user.user_id)
+                        .execute()
+                )
+                await _log_transaction(current_user.user_id, snack_points_earned, "snack_purchase", str(order_id))
+
         logger.info(f"Payment {payment_id} confirmed for order {order_id}")
         return PaymentConfirmResponse(
             payment_id=payment_id,
             status="success",
             order_id=order_id,
             order_status="confirmed",
-            points_earned=0,
+            points_earned=snack_points_earned,
             message="Snack order confirmed",
         )
 

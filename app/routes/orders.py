@@ -38,18 +38,15 @@ async def get_orders(
     status: str = None,
     current_user: CurrentUser = Depends(get_current_user),
 ):
-    """Get user's orders (users see their own, admins see all)"""
-    if current_user.is_admin:
-        return await crud_order.get_all_orders(skip, limit, status, is_admin=True)
-    else:
-        return await crud_order.get_user_orders(
-            UUID(current_user.user_id),
-            UUID(current_user.user_id),
-            skip,
-            limit,
-            status,
-            is_admin=False
-        )
+    """Get the current user's own orders. Admins use /admin/orders for all orders."""
+    return await crud_order.get_user_orders(
+        UUID(current_user.user_id),
+        UUID(current_user.user_id),
+        skip,
+        limit,
+        status,
+        is_admin=False
+    )
 
 
 @router.get("/{order_id}", response_model=OrderResponse)

@@ -19,7 +19,7 @@ from app.crud.showtime_seat import CRUDShowtimeSeat
 from app.schemas.movie import Movie, MovieCreate, MovieUpdate
 from app.schemas.showtime import Showtime, ShowtimeCreate, ShowtimeUpdate
 from app.schemas.showtime_seat import ShowtimeSeat, ShowtimeSeatCreate, ShowtimeSeatUpdate
-from app.schemas.user import AdminUserResponse, AdminUserUpdate
+from app.schemas.user import AdminUserResponse, AdminUserUpdate, AdminPointTransaction, AdminPointTransactionsResponse
 from app.schemas.public import HeroSlide, HeroSlideCreate, HeroSlideUpdate, Promotion, PromotionCreate, PromotionUpdate
 from app.schemas.theatre import Theatre, TheatreCreate, TheatreUpdate, Seat, SeatCreate, SeatUpdate
 from app.core.supabase import supabase_admin
@@ -603,6 +603,50 @@ async def delete_admin_user(user_id: UUID):
     if not success:
         raise NotFoundException("User", str(user_id))
     return {"message": "User deactivated"}
+
+
+# ========== Point Transactions ==========
+
+@router.get("/point-transactions", response_model=AdminPointTransactionsResponse)
+async def list_admin_point_transactions(
+    user_id: Optional[str] = Query(None),
+    reason: Optional[str] = Query(None),
+    limit: int = Query(50, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+):
+    """Paginated list of all membership_transactions for admin audit."""
+    try:
+        def _fetch():
+            q = supabase_admin.table("membership_transactions").select(
+                "id, user_id, points_delta, reason, reference_id, created_at, "
+                "users!inner(email, full_name)",
+                count="exact",
+            )
+            if user_id:
+                q = q.eq("user_id", user_id)
+            if reason:
+                q = q.eq("reason", reason)
+            return q.order("created_at", desc=True).range(offset, offset + limit - 1).execute()
+
+        res = await asyncio.to_thread(_fetch)
+
+        transactions = []
+        for row in (res.data or []):
+            user_info = row.get("users") or {}
+            transactions.append(AdminPointTransaction(
+                id            = row["id"],
+                user_id       = row["user_id"],
+                user_email    = user_info.get("email", ""),
+                user_full_name= user_info.get("full_name"),
+                points_delta  = row["points_delta"],
+                reason        = row["reason"],
+                reference_id  = row.get("reference_id"),
+                created_at    = row.get("created_at"),
+            ))
+        return AdminPointTransactionsResponse(transactions=transactions, total=res.count or 0)
+    except Exception as e:
+        logger.error(f"list_admin_point_transactions error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch point transactions")
 
 
 # ========== Public Content Management (CMS) ==========

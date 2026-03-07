@@ -134,12 +134,26 @@ class CRUDBooking:
             return None
 
     async def get_user_bookings(self, user_id: str, status: Optional[str] = None) -> List[BookingDetail]:
-        """All bookings for a user, newest first."""
+        """All bookings for a user, newest first.
+
+        Queries the bookings table directly with embedded joins rather than
+        the booking_details view, which joins with ticket/seat rows and can
+        return N duplicate rows for a booking that has N tickets.
+        """
         try:
             def _fetch():
                 q = (
-                    self.client.from_("booking_details")
-                        .select("*")
+                    self.client.table("bookings")
+                        .select(
+                            "booking_id, user_id, booking_status, num_tickets, "
+                            "total_amount, final_amount_paid, points_redeemed, "
+                            "payment_deadline, created_at, updated_at, change_count, "
+                            "showtimes!inner(id, start_time, "
+                            "  movies(title, poster_url), "
+                            "  theatres(name)"
+                            "), "
+                            "booking_seats(seat_id, seats(row_label, seat_number))"
+                        )
                         .eq("user_id", str(user_id))
                         .order("created_at", desc=True)
                 )
@@ -148,7 +162,41 @@ class CRUDBooking:
                 return q.execute()
 
             res = await asyncio.to_thread(_fetch)
-            return [BookingDetail(**row) for row in (res.data or [])]
+
+            bookings = []
+            for row in (res.data or []):
+                showtime = row.get("showtimes") or {}
+                movie    = showtime.get("movies") or {}
+                theatre  = showtime.get("theatres") or {}
+                seats    = [
+                    {
+                        "seat_id":     bs.get("seat_id"),
+                        "row_label":   (bs.get("seats") or {}).get("row_label", ""),
+                        "seat_number": (bs.get("seats") or {}).get("seat_number", 0),
+                    }
+                    for bs in (row.get("booking_seats") or [])
+                ]
+                bookings.append(BookingDetail(
+                    booking_id       = row["booking_id"],
+                    user_id          = row["user_id"],
+                    booking_status   = row["booking_status"],
+                    num_tickets      = row.get("num_tickets"),
+                    total_amount     = row.get("total_amount", 0),
+                    final_amount_paid= row.get("final_amount_paid"),
+                    points_redeemed  = row.get("points_redeemed"),
+                    payment_deadline = row.get("payment_deadline"),
+                    created_at       = row.get("created_at"),
+                    updated_at       = row.get("updated_at"),
+                    change_count     = row.get("change_count", 0),
+                    showtime_id      = showtime.get("id", 0),
+                    showtime_start   = showtime.get("start_time"),
+                    movie_title      = movie.get("title"),
+                    poster_url       = movie.get("poster_url"),
+                    screen_name      = theatre.get("name"),
+                    seats            = seats,
+                ))
+            print(bookings)
+            return bookings
         except Exception as e:
             logger.error(f"get_user_bookings error: {e}")
             return []
