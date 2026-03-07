@@ -25,28 +25,42 @@ class CRUDShowtime:
         new_start: datetime = showtime.start_time
         BUFFER = timedelta(minutes=30)
 
-        # --- Fetch movie for runtime, credits, and default languages ---------
+        # --- Fetch movie for runtime and credits ---------
         movie_resp = await asyncio.to_thread(
             lambda: self.client.table("movies")
-                .select("runtime_minutes, duration_minutes, credits_duration_minutes, audio_languages, subtitle_languages")
+                .select("runtime_minutes, duration_minutes, credits_duration_minutes")
                 .eq("id", showtime.movie_id)
                 .limit(1)
                 .execute()
         )
         movie = (movie_resp.data or [None])[0] or {}
-        runtime: int = int(movie.get("runtime_minutes") or movie.get("duration_minutes") or 120)
+        runtime: int = int(movie.get("runtime_minutes") or movie.get("duration_minutes"))
         credits_min: int = int(movie.get("credits_duration_minutes") or 5)
         new_end: datetime = new_start + timedelta(minutes=runtime + credits_min)
 
-        # Default languages from movie if admin did not specify
+        # Default languages from junction tables if admin did not specify
         audio_lang = showtime.audio_language
         subtitle_lang = showtime.subtitle_language
         if not audio_lang:
-            audio_langs = movie.get("audio_languages") or []
-            audio_lang = audio_langs[0] if audio_langs else None
+            audio_resp = await asyncio.to_thread(
+                lambda: self.client.table("movie_audio_languages")
+                    .select("language")
+                    .eq("movie_id", showtime.movie_id)
+                    .limit(1)
+                    .execute()
+            )
+            audio_rows: List[Dict[str, Any]] = audio_resp.data or []
+            audio_lang = audio_rows[0]["language"] if audio_rows else None
         if not subtitle_lang:
-            sub_langs = movie.get("subtitle_languages") or []
-            subtitle_lang = sub_langs[0] if sub_langs else None
+            sub_resp = await asyncio.to_thread(
+                lambda: self.client.table("movie_subtitle_languages")
+                    .select("language")
+                    .eq("movie_id", showtime.movie_id)
+                    .limit(1)
+                    .execute()
+            )
+            sub_rows: List[Dict[str, Any]] = sub_resp.data or []
+            subtitle_lang = sub_rows[0]["language"] if sub_rows else None
 
         # --- 30-minute spacing conflict check --------------------------------
         # Fetch any showtime in a broad window that could overlap
