@@ -330,11 +330,13 @@ class CRUDMovie:
         return len(movie_ids)
 
     async def get_top_picks(self, limit: int = 10) -> List[dict]:
-        """Return top movies ordered by consensus_score descending."""
+        """Return top movies ordered by consensus_score descending.
+        Cold-start movies (score=0) are excluded per spec."""
         response = await asyncio.to_thread(
             lambda: self.client.table("movies")
                 .select(_MOVIE_SELECT)
                 .eq("is_active", True)
+                .gt("consensus_score", 0)
                 .order("consensus_score", desc=True)
                 .limit(limit)
                 .execute()
