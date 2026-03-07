@@ -176,7 +176,7 @@ class CRUDReview:
         return bool(response.data)
 
     async def add_like(self, review_id: int, user_id: str) -> dict:
-        """Add a like to a review and increment like_count."""
+        """Add a like to a review, increment like_count, and award milestone bonus to author."""
         def process_like():
             like_res = self.client.table("review_likes").insert({
                 "review_id": review_id,
@@ -188,21 +188,61 @@ class CRUDReview:
 
             review = (
                 self.client.table("movie_reviews")
-                    .select("like_count")
+                    .select("like_count, user_id")
                     .eq("id", review_id)
                     .single()
                     .execute()
             )
             new_count = (review.data.get("like_count") or 0) + 1
+            author_id = review.data.get("user_id")
             self.client.table("movie_reviews").update({"like_count": new_count}).eq("id", review_id).execute()
-            return like_res.data[0]
+            return like_res.data[0], new_count, author_id
 
         try:
-            return await asyncio.to_thread(process_like)
+            result, new_count, author_id = await asyncio.to_thread(process_like)
         except Exception as e:
             if "duplicate key" in str(e).lower():
                 raise ValueError("Already liked")
             raise
+
+        # Award milestone bonus to review author (only once per milestone)
+        LIKE_MILESTONES = {10: 20, 50: 50, 100: 100}
+        if author_id and new_count in LIKE_MILESTONES:
+            try:
+                milestone_reason = f"review_likes_{new_count}"
+                already_res = await asyncio.to_thread(
+                    lambda: self.client.table("membership_transactions")
+                        .select("id", count="exact")
+                        .eq("user_id", author_id)
+                        .eq("reason", milestone_reason)
+                        .eq("reference_id", str(review_id))
+                        .execute()
+                )
+                if (already_res.count or 0) == 0:
+                    bonus = LIKE_MILESTONES[new_count]
+                    author_res = await asyncio.to_thread(
+                        lambda: self.client.table("users")
+                            .select("loyalty_points")
+                            .eq("id", author_id)
+                            .maybe_single()
+                            .execute()
+                    )
+                    author_pts = (author_res.data or {}).get("loyalty_points") or 0
+                    await asyncio.to_thread(
+                        lambda: self.client.table("users")
+                            .update({"loyalty_points": author_pts + bonus})
+                            .eq("id", author_id)
+                            .execute()
+                    )
+                    await asyncio.to_thread(
+                        lambda: self.client.table("membership_transactions")
+                            .insert({"user_id": author_id, "points_delta": bonus, "reason": milestone_reason, "reference_id": str(review_id)})
+                            .execute()
+                    )
+            except Exception:
+                pass  # Best-effort — never fail the like operation over bonus points
+
+        return result
 
     async def remove_like(self, review_id: int, user_id: str) -> bool:
         """Remove a like from a review and decrement like_count."""

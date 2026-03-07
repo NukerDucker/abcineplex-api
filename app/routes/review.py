@@ -95,7 +95,7 @@ async def _resolve_booking_context(booking_id: str, user_id: str) -> dict:
 
 
 async def _award_review_points(user_id: str, review_id: Optional[int] = None) -> None:
-    """Award 20 loyalty points and set points_awarded flag on the review. Best-effort — never raises."""
+    """Award 20 loyalty points, set points_awarded flag, and log the transaction. Best-effort — never raises."""
     try:
         user_res = await asyncio.to_thread(
             lambda: supabase_admin.table("users")
@@ -111,6 +111,13 @@ async def _award_review_points(user_id: str, review_id: Optional[int] = None) ->
                     .update({"loyalty_points": new_pts})
                     .eq("id", user_id)
                     .execute()
+            )
+            # Log to membership_transactions
+            tx_row: dict = {"user_id": user_id, "points_delta": 20, "reason": "review_points"}
+            if review_id:
+                tx_row["reference_id"] = str(review_id)
+            await asyncio.to_thread(
+                lambda: supabase_admin.table("membership_transactions").insert(tx_row).execute()
             )
         if review_id:
             await asyncio.to_thread(

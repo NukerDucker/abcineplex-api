@@ -221,7 +221,7 @@ async def fetch_tmdb_movie(tmdb_id: int):
 
     # ── Genre ────────────────────────────────────────────────────────────
     genres = data.get("genres") or []
-    genre_str = ", ".join(g["name"] for g in genres) if genres else None
+    genre_list = [g["name"] for g in genres]
 
     poster_path = data.get("poster_path")
     backdrop_path = data.get("backdrop_path")
@@ -239,7 +239,7 @@ async def fetch_tmdb_movie(tmdb_id: int):
         "credits_duration_minutes": 5,
         "imdb_score": data.get("vote_average"),
         "rating_count": data.get("vote_count"),
-        "genre": genre_str,
+        "genre": genre_list,
         "director": director,
         "starring": starring,
         "poster_url": poster_url,
@@ -496,6 +496,43 @@ async def update_admin_booking(
     return updated.data or {}
 
 
+# ========== Review Moderation ==========
+
+@router.get("/reviews")
+async def list_admin_reviews(
+    movie_id: Optional[int] = Query(None),
+    limit: int = Query(50, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+):
+    """List all reviews for admin moderation, optionally filtered by movie."""
+    try:
+        query = supabase_admin.table("movie_reviews").select(
+            "id, user_id, movie_id, rating, review_text, like_count, created_at, "
+            "users!inner(user_name, email), movies!inner(title)",
+            count="exact",
+        )
+        if movie_id:
+            query = query.eq("movie_id", movie_id)
+        res = await asyncio.to_thread(
+            lambda: query.order("created_at", desc=True).range(offset, offset + limit - 1).execute()
+        )
+        return {"reviews": res.data or [], "total": res.count or 0}
+    except Exception as e:
+        logger.error(f"Error fetching reviews for admin: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to fetch reviews")
+
+
+@router.delete("/reviews/{review_id}")
+async def admin_delete_review(review_id: int):
+    """Delete any review regardless of ownership (content moderation)."""
+    res = await asyncio.to_thread(
+        lambda: supabase_admin.table("movie_reviews").delete().eq("id", review_id).execute()
+    )
+    if not res.data:
+        raise NotFoundException("Review", str(review_id))
+    return {"status": "success", "message": "Review deleted"}
+
+
 # ========== User Management ==========
 
 @router.get("/users", response_model=List[AdminUserResponse])
@@ -519,12 +556,42 @@ async def list_admin_users(
 
 @router.patch("/users/{user_id}", response_model=AdminUserResponse)
 async def update_admin_user(user_id: UUID, user_update: AdminUserUpdate):
-    """Edit customer information including membership and student discount"""
+    """Edit customer information including membership and student discount.
+    When loyalty_points is changed, a membership_transactions row is inserted with the given reason.
+    """
     user_uuid = str(user_id)
     data = user_update.model_dump(exclude_unset=True)
+    reason = data.pop("points_adjustment_reason", None)
+
+    # Snapshot current points before update so we can compute the delta
+    points_delta: Optional[int] = None
+    if "loyalty_points" in data:
+        current_res = await asyncio.to_thread(
+            lambda: supabase_admin.table("users")
+                .select("loyalty_points")
+                .eq("id", user_uuid)
+                .maybe_single()
+                .execute()
+        )
+        current_pts = (current_res.data or {}).get("loyalty_points") or 0
+        points_delta = data["loyalty_points"] - current_pts
+
     updated = await crud_user.update(user_uuid, data)
     if not updated:
         raise NotFoundException("User", str(user_id))
+
+    # Log the adjustment to membership_transactions
+    if points_delta is not None:
+        adj_reason = reason or "admin_adjustment"
+        try:
+            await asyncio.to_thread(
+                lambda: supabase_admin.table("membership_transactions")
+                    .insert({"user_id": user_uuid, "points_delta": points_delta, "reason": adj_reason, "reference_id": user_uuid})
+                    .execute()
+            )
+        except Exception as e:
+            logger.warning(f"Could not log admin points adjustment: {e}")
+
     return updated
 
 

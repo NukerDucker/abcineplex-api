@@ -61,13 +61,38 @@ async def _recalculate_consensus(booking_id: str) -> None:
         await crud_movie.recalculate_consensus_score(st_res.data["movie_id"])
 
 
+async def _log_transaction(user_id: str, points_delta: int, reason: str, reference_id: Optional[str] = None) -> None:
+    """Insert a row into membership_transactions. Best-effort — never raises."""
+    try:
+        row: dict = {"user_id": user_id, "points_delta": points_delta, "reason": reason}
+        if reference_id is not None:
+            row["reference_id"] = reference_id
+        await asyncio.to_thread(
+            lambda: supabase_admin.table("membership_transactions").insert(row).execute()
+        )
+    except Exception as e:
+        logger.warning(f"membership_transactions insert failed: {e}")
+
+
 async def _apply_loyalty(
     booking_id: str,
     amount: float,
     points_redeemed: int,
     user: CurrentUser,
 ) -> int:
-    """Award points + streak for an authenticated user. Returns points earned."""
+    """
+    Award points + update streak for an authenticated user. Returns points earned.
+
+    Rules enforced here:
+    - Points redemption validated against current balance (raises 400 if insufficient)
+    - Streak resets to 1 if gap since last confirmed booking > 7 days
+    - Milestone bonuses at streak 3 (+50), 5 (+100), 10 (+200) awarded only once
+    - Referral bonus (+50 each) awarded on user's first confirmed booking
+    - All point changes logged to membership_transactions
+    """
+    from datetime import timezone, timedelta
+    from fastapi import HTTPException
+
     booking_res = await asyncio.to_thread(
         lambda: supabase_admin.table("bookings")
             .select("num_tickets")
@@ -77,14 +102,7 @@ async def _apply_loyalty(
     )
     num_tickets = (booking_res.data or {}).get("num_tickets") or 1
     points_earned = 50 * num_tickets
-    points_discount = min(points_redeemed, int(amount))
-    final_amount = max(0, amount - points_discount)
-    await asyncio.to_thread(
-        lambda: supabase_admin.table("bookings")
-            .update({"points_redeemed": points_redeemed, "final_amount_paid": final_amount})
-            .eq("id", booking_id)
-            .execute()
-    )
+
     user_res = await asyncio.to_thread(
         lambda: supabase_admin.table("users")
             .select("loyalty_points, attendance_streak")
@@ -92,16 +110,145 @@ async def _apply_loyalty(
             .maybe_single()
             .execute()
     )
-    if user_res.data:
-        current_pts = user_res.data.get("loyalty_points") or 0
-        new_pts = current_pts - min(points_redeemed, current_pts) + points_earned
-        new_streak = (user_res.data.get("attendance_streak") or 0) + 1
-        await asyncio.to_thread(
-            lambda: supabase_admin.table("users")
-                .update({"loyalty_points": new_pts, "attendance_streak": new_streak})
-                .eq("id", user.user_id)
+    user_data = user_res.data or {}
+    current_pts = user_data.get("loyalty_points") or 0
+
+    # Validate points redemption before doing anything
+    if points_redeemed > current_pts:
+        raise HTTPException(status_code=400, detail="Insufficient loyalty points balance")
+
+    points_discount = min(points_redeemed, int(amount))
+    final_amount = max(0, amount - points_discount)
+
+    await asyncio.to_thread(
+        lambda: supabase_admin.table("bookings")
+            .update({"points_redeemed": points_redeemed, "final_amount_paid": final_amount})
+            .eq("id", booking_id)
+            .execute()
+    )
+
+    # ── Streak calculation ─────────────────────────────────────────────────────
+    # Fetch the most recent prior ticket_purchase transaction to determine gap
+    last_tx_res = await asyncio.to_thread(
+        lambda: supabase_admin.table("membership_transactions")
+            .select("created_at")
+            .eq("user_id", user.user_id)
+            .eq("reason", "ticket_purchase")
+            .order("created_at", desc=True)
+            .limit(1)
+            .execute()
+    )
+    last_tx_rows = last_tx_res.data or []
+    is_first_booking = len(last_tx_rows) == 0
+
+    now = datetime.now(timezone.utc)
+    if last_tx_rows:
+        raw_ts = last_tx_rows[0].get("created_at", "")
+        last_dt = datetime.fromisoformat(str(raw_ts).replace("Z", "+00:00"))
+        if last_dt.tzinfo is None:
+            last_dt = last_dt.replace(tzinfo=timezone.utc)
+        gap_days = (now - last_dt).days
+        streak_resets = gap_days > 7
+    else:
+        streak_resets = False
+
+    current_streak = user_data.get("attendance_streak") or 0
+    new_streak = 1 if streak_resets else current_streak + 1
+
+    # ── Update user balance + streak ───────────────────────────────────────────
+    new_pts = current_pts - points_discount + points_earned
+    await asyncio.to_thread(
+        lambda: supabase_admin.table("users")
+            .update({"loyalty_points": new_pts, "attendance_streak": new_streak})
+            .eq("id", user.user_id)
+            .execute()
+    )
+
+    # ── Log transactions ───────────────────────────────────────────────────────
+    await _log_transaction(user.user_id, points_earned, "ticket_purchase", booking_id)
+    if points_redeemed > 0:
+        await _log_transaction(user.user_id, -points_redeemed, "points_redemption", booking_id)
+
+    # ── Streak milestone bonuses (only once per milestone) ─────────────────────
+    MILESTONES = {3: 50, 5: 100, 10: 200}
+    if new_streak in MILESTONES:
+        milestone_reason = f"streak_milestone_{new_streak}"
+        already_res = await asyncio.to_thread(
+            lambda: supabase_admin.table("membership_transactions")
+                .select("id", count="exact")
+                .eq("user_id", user.user_id)
+                .eq("reason", milestone_reason)
                 .execute()
         )
+        if (already_res.count or 0) == 0:
+            bonus = MILESTONES[new_streak]
+            await asyncio.to_thread(
+                lambda: supabase_admin.table("users")
+                    .update({"loyalty_points": new_pts + bonus})
+                    .eq("id", user.user_id)
+                    .execute()
+            )
+            await _log_transaction(user.user_id, bonus, milestone_reason, booking_id)
+            new_pts += bonus
+
+    # ── Referral bonus on first confirmed booking ──────────────────────────────
+    if is_first_booking:
+        pending_res = await asyncio.to_thread(
+            lambda: supabase_admin.table("membership_transactions")
+                .select("reference_id")
+                .eq("user_id", user.user_id)
+                .eq("reason", "referral_pending")
+                .limit(1)
+                .execute()
+        )
+        pending_rows = pending_res.data or []
+        if pending_rows:
+            referrer_id = pending_rows[0].get("reference_id")
+            if referrer_id:
+                # Award +50 to referred user
+                ref_user_res = await asyncio.to_thread(
+                    lambda: supabase_admin.table("users")
+                        .select("loyalty_points")
+                        .eq("id", user.user_id)
+                        .maybe_single()
+                        .execute()
+                )
+                ref_user_pts = (ref_user_res.data or {}).get("loyalty_points") or new_pts
+                await asyncio.to_thread(
+                    lambda: supabase_admin.table("users")
+                        .update({"loyalty_points": ref_user_pts + 50})
+                        .eq("id", user.user_id)
+                        .execute()
+                )
+                await _log_transaction(user.user_id, 50, "referral_bonus", referrer_id)
+
+                # Award +50 to referrer
+                referrer_res = await asyncio.to_thread(
+                    lambda: supabase_admin.table("users")
+                        .select("loyalty_points")
+                        .eq("id", referrer_id)
+                        .maybe_single()
+                        .execute()
+                )
+                referrer_pts = (referrer_res.data or {}).get("loyalty_points") or 0
+                await asyncio.to_thread(
+                    lambda: supabase_admin.table("users")
+                        .update({"loyalty_points": referrer_pts + 50})
+                        .eq("id", referrer_id)
+                        .execute()
+                )
+                await _log_transaction(referrer_id, 50, "referral_bonus", user.user_id)
+
+                # Remove the pending referral marker
+                await asyncio.to_thread(
+                    lambda: supabase_admin.table("membership_transactions")
+                        .delete()
+                        .eq("user_id", user.user_id)
+                        .eq("reason", "referral_pending")
+                        .execute()
+                )
+                logger.info(f"Referral bonus awarded: {user.user_id} and referrer {referrer_id} each +50 pts")
+
     return points_earned
 
 
@@ -316,7 +463,31 @@ async def confirm_payment(
         )
 
     else:
-        # Confirm snack order
+        # Confirm snack order — apply points redemption if requested
+        snack_points_redeemed = request.points_redeemed if current_user else 0
+        snack_amount = float(record.get("amount", 0))
+
+        if current_user and snack_points_redeemed > 0:
+            user_pts_res = await asyncio.to_thread(
+                lambda: supabase_admin.table("users")
+                    .select("loyalty_points")
+                    .eq("id", current_user.user_id)
+                    .maybe_single()
+                    .execute()
+            )
+            snack_current_pts = (user_pts_res.data or {}).get("loyalty_points") or 0
+            if snack_points_redeemed > snack_current_pts:
+                raise HTTPException(status_code=400, detail="Insufficient loyalty points balance")
+            points_discount = min(snack_points_redeemed, int(snack_amount))
+            new_snack_pts = snack_current_pts - points_discount
+            await asyncio.to_thread(
+                lambda: supabase_admin.table("users")
+                    .update({"loyalty_points": new_snack_pts})
+                    .eq("id", current_user.user_id)
+                    .execute()
+            )
+            await _log_transaction(current_user.user_id, -points_discount, "points_redemption_snack", str(order_id))
+
         await asyncio.to_thread(
             lambda: supabase_admin.table("orders")
                 .update({"order_status": "confirmed"})

@@ -146,10 +146,36 @@ class CRUDShowtime:
         return showtime_record
 
     async def update(self, showtime_id: int, showtime_in: ShowtimeUpdate) -> Optional[dict]:
-        """Update showtime with fallback"""
+        """Update showtime. Auto-recalculates end_time when start_time changes."""
         data = showtime_in.model_dump(exclude_unset=True, mode='json')
         if not data:
             return await self.get_by_id(showtime_id)
+
+        # Recalculate end_time if start_time is being changed
+        if "start_time" in data:
+            current = await asyncio.to_thread(
+                lambda: self.client.table("showtimes")
+                    .select("movie_id")
+                    .eq("id", showtime_id)
+                    .maybe_single()
+                    .execute()
+            )
+            movie_id = (current.data or {}).get("movie_id")
+            if movie_id:
+                movie_resp = await asyncio.to_thread(
+                    lambda: self.client.table("movies")
+                        .select("runtime_minutes, duration_minutes, credits_duration_minutes")
+                        .eq("id", movie_id)
+                        .limit(1)
+                        .execute()
+                )
+                movie = (movie_resp.data or [{}])[0]
+                runtime = int(movie.get("runtime_minutes") or movie.get("duration_minutes") or 0)
+                credits_min = int(movie.get("credits_duration_minutes") or 5)
+                new_start = datetime.fromisoformat(str(data["start_time"]).replace("Z", "+00:00"))
+                if new_start.tzinfo is None:
+                    new_start = new_start.replace(tzinfo=timezone.utc)
+                data["end_time"] = (new_start + timedelta(minutes=runtime + credits_min)).isoformat()
 
         response = await asyncio.to_thread(
             lambda: self.client.table("showtimes")

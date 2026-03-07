@@ -194,6 +194,7 @@ class CRUDMovie:
         limit: int = 20,
         release_status: Optional[str] = None,
         active_only: bool = False,
+        search: Optional[str] = None,
     ) -> tuple[List[dict], int]:
         offset = (page - 1) * limit
 
@@ -203,6 +204,8 @@ class CRUDMovie:
                 query = query.eq("release_status", release_status)
             if active_only:
                 query = query.eq("is_active", True)
+            if search:
+                query = query.ilike("title", f"%{search}%")
             return query.range(offset, offset + limit - 1).execute()
 
         response = await asyncio.to_thread(_fetch)

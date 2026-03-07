@@ -70,11 +70,12 @@ def _build_showtime_card(
 async def list_movies(
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
-    status: Optional[str] = Query(None, alias="release_status")
+    status: Optional[str] = Query(None, alias="release_status"),
+    search: Optional[str] = Query(None, description="Search movies by title (case-insensitive partial match)"),
 ):
-    """Browse movies with optional release_, genre, and title-search filters."""
+    """Browse movies with optional release_status filter and title search."""
     rows, total = await crude_movie.get_multi(
-        page=page, limit=limit, release_status=status, active_only=True
+        page=page, limit=limit, release_status=status, active_only=True, search=search
     )
     return MovieListResponse(
         movies=rows,  # FastAPI/Pydantic will automatically convert these dicts to MovieSummary objects

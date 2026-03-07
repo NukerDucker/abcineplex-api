@@ -131,6 +131,7 @@ class AdminUserUpdate(BaseModel):
     full_name: Optional[str] = None
     phone: Optional[str] = None
     loyalty_points: Optional[int] = None
+    points_adjustment_reason: Optional[str] = None  # Required when changing loyalty_points; logged to membership_transactions
     is_admin: Optional[bool] = None
     is_active: Optional[bool] = None
     is_student: Optional[bool] = None

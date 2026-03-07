@@ -157,36 +157,27 @@ async def register(body: RegisterRequest):
     email = str(auth_res.user.email or body.email)
     token_user = _build_token_user(user_id, email, profile)
 
-    # EP-20: Award referral points to both referrer and new user
+    # EP-20: Record referral relationship — points awarded after referred user's first confirmed booking
     if body.referral_code:
         try:
             ref_res = await asyncio.to_thread(
                 lambda: supabase_admin.table("users")
-                    .select("id, loyalty_points")
+                    .select("id")
                     .eq("user_name", body.referral_code)
                     .maybe_single()
                     .execute()
             )
             if ref_res.data and ref_res.data["id"] != user_id:
                 referrer_id = ref_res.data["id"]
-                new_referrer_pts = (ref_res.data.get("loyalty_points") or 0) + 50
+                # Store pending referral — _apply_loyalty will convert this to real points on first booking
                 await asyncio.to_thread(
-                    lambda: supabase_admin.table("users")
-                        .update({"loyalty_points": new_referrer_pts})
-                        .eq("id", referrer_id)
+                    lambda: supabase_admin.table("membership_transactions")
+                        .insert({"user_id": user_id, "points_delta": 0, "reason": "referral_pending", "reference_id": referrer_id})
                         .execute()
                 )
-                # Also award 50 pts to the newly registered user
-                new_user_pts = int(profile.get("loyalty_points") or 0) + 50
-                await asyncio.to_thread(
-                    lambda: supabase_admin.table("users")
-                        .update({"loyalty_points": new_user_pts})
-                        .eq("id", user_id)
-                        .execute()
-                )
-                logger.info(f"[auth] referral: awarded 50 pts to referrer {referrer_id} and new user {user_id}")
+                logger.info(f"[auth] referral: pending referral recorded for new user {user_id}, referrer {referrer_id}")
         except Exception as e:
-            logger.warning(f"[auth] referral points award failed: {e}")
+            logger.warning(f"[auth] referral pending record failed: {e}")
 
     logger.info(f"[auth] register: auto-login success for user_id={user_id}")
 
