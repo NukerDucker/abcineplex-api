@@ -108,8 +108,8 @@ class UserPointsResponse(BaseModel):
 # ── Admin schemas ──────────────────────────────────────────────────────────────
 
 class AdminUserResponse(BaseModel):
-    """Full user row for admin management — uses raw DB field names."""
-    id: str
+    """Full user row for admin management."""
+    user_id: str = Field(validation_alias='id')
     email: str
     user_name: Optional[str] = None
     full_name: Optional[str] = None
@@ -123,7 +123,7 @@ class AdminUserResponse(BaseModel):
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 
 class AdminUserUpdate(BaseModel):
