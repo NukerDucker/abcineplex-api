@@ -296,13 +296,16 @@ class CRUDBooking:
     ) -> str:
         """Create a guest_sessions row and return the generated token."""
         import secrets
+        from datetime import datetime, timezone, timedelta
         token = secrets.token_urlsafe(32)
+        expires_at = (datetime.now(timezone.utc) + timedelta(days=30)).isoformat()
         await asyncio.to_thread(
             lambda: self.client.table("guest_sessions").insert({
                 "booking_id": booking_id,
                 "token": token,
                 "email": email,
                 "phone": phone,
+                "expires_at": expires_at,
             }).execute()
         )
         return token
