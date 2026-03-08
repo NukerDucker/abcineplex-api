@@ -78,20 +78,16 @@ async def get_showtime(showtime_id: int):
     end_dt, end_credits_dt = _derive_times(start_dt, runtime, credits_min)
     raqs, ttc = _movie_raqs_ttc(movie_row)
 
-    theatre_id = raw.get("theatre_id")
-    available = None
-    total_seats = raw.get("total_seats")
-    if theatre_id:
-        occupancy = await crud_showtime.get_screen_occupancy(theatre_id)
-        available = occupancy.get("available_seats")
+    theatre_row = raw.get("theatres") or {}
+    total_seats = theatre_row.get("total_seats") if isinstance(theatre_row, dict) else None
+    available = await crud_showtime.get_showtime_availability(showtime_id)
 
-    badge_data = calc_demand_badge(available or 0, total_seats or 0)
+    badge_data = calc_demand_badge(available, total_seats or 0)
 
     normal_price = float(raw.get("base_price") or 0.0)
     student_discount = raw.get("student_discount_baht")
     student_price = round(normal_price - float(student_discount or 0), 2) if student_discount is not None else None
 
-    theatre_row = raw.get("theatres") or {}
     theatre_name = theatre_row.get("name") if isinstance(theatre_row, dict) else None
     if not theatre_name and theatre_id:
         theatre_name = f"Theatre {theatre_id}"
@@ -320,18 +316,15 @@ async def get_hold_status(
 @router.get("/{showtime_id}/demand")
 async def get_showtime_demand(showtime_id: int):
     """Convenience endpoint — demand badge for a showtime."""
-    raw = await crud_showtime.get_by_id(showtime_id)
+    raw = await crud_showtime.get_detail(showtime_id)
     if not raw:
         raise NotFoundException("Showtime", str(showtime_id))
 
-    theatre_id = raw.get("theatre_id")
-    available = 0
-    total = raw.get("total_seats") or 0
-    if theatre_id:
-        occupancy = await crud_showtime.get_screen_occupancy(theatre_id)
-        available = occupancy.get("available_seats") or 0
+    theatre_row = raw.get("theatres") or {}
+    total = theatre_row.get("total_seats") if isinstance(theatre_row, dict) else None
+    available = await crud_showtime.get_showtime_availability(showtime_id)
 
-    return {"showtime_id": showtime_id, **calc_demand_badge(available, total)}
+    return {"showtime_id": showtime_id, **calc_demand_badge(available, total or 0)}
 
 
 @router.get("/{showtime_id}/time-commitment", response_model=TimeCommitmentResponse)

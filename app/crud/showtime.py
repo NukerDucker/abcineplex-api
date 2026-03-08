@@ -298,7 +298,7 @@ class CRUDShowtime:
                 .select(
                     "*, "
                     "movies(id, title, duration_minutes, imdb_score, rating_count, release_date, credits_duration_minutes), "
-                    "theatres(name)"
+                    "theatres(name, total_seats)"
                 )
                 .eq("id", showtime_id)
                 .maybe_single()
@@ -413,18 +413,20 @@ class CRUDShowtime:
 
         return result
 
-    async def get_screen_occupancy(self, theatre_id: int) -> Dict[str, Any]:
-        """Count active seats for a theatre directly from the seats table."""
+    async def get_showtime_availability(self, showtime_id: int) -> int:
+        """Return number of seats available for booking for a given showtime.
+
+        available = showtime_seats.is_available=true minus active seat_holds (not expired).
+        This matches the CLAUDE.md predictive demand badge spec.
+        """
+        def fetch():
+            available_res = self.client.table("showtime_seats").select("seat_id", count="exact").eq("showtime_id", showtime_id).eq("is_available", True).execute()
+            holds_res = self.client.table("seat_holds").select("seat_id", count="exact").eq("showtime_id", showtime_id).gt("hold_expires_at", "now()").execute()
+            return (available_res.count or 0), (holds_res.count or 0)
+
         try:
-            resp = await asyncio.to_thread(
-                lambda: self.client.table("seats")
-                    .select("id", count="exact")
-                    .eq("theatre_id", theatre_id)
-                    .eq("is_active", True)
-                    .execute()
-            )
-            count = resp.count or 0
-            return {"theatre_id": theatre_id, "total_seats": count, "available_seats": count}
+            available_count, hold_count = await asyncio.to_thread(fetch)
+            return max(0, available_count - hold_count)
         except Exception as e:
-            logger.error(f"Error getting occupancy for screen {theatre_id}: {e}")
-            return {"theatre_id": theatre_id, "total_seats": 0, "available_seats": 0}
+            logger.error(f"Error getting showtime availability for {showtime_id}: {e}")
+            return 0

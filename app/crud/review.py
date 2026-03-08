@@ -120,7 +120,7 @@ class CRUDReview:
         items = await asyncio.to_thread(fetch)
         return {"total": len(items), "items": items}
 
-    async def create(self, review_in: dict, user_id: str) -> dict:
+    async def create(self, review_in: dict) -> dict:
         """Create new review — one per user per movie (enforced by DB unique constraint)."""
         def validate_and_create():
             try:
@@ -212,13 +212,14 @@ class CRUDReview:
                 milestone_reason = f"review_likes_{new_count}"
                 already_res = await asyncio.to_thread(
                     lambda: self.client.table("membership_transactions")
-                        .select("id", count="exact")
+                        .select("id")
                         .eq("user_id", author_id)
                         .eq("reason", milestone_reason)
                         .eq("reference_id", str(review_id))
+                        .limit(1)
                         .execute()
                 )
-                if (already_res.count or 0) == 0:
+                if not already_res.data:
                     bonus = LIKE_MILESTONES[new_count]
                     author_res = await asyncio.to_thread(
                         lambda: self.client.table("users")

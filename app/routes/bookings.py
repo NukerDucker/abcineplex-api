@@ -348,7 +348,6 @@ async def change_showtime(
     old_showtime_id = b["showtime_id"]
     update_data = {
         "showtime_id": body.new_showtime_id,
-        "booking_status": "changed",
         "original_showtime_id": old_showtime_id,
         "change_count": (b.get("change_count") or 0) + 1,
     }
@@ -369,17 +368,9 @@ async def change_showtime(
         await asyncio.to_thread(
             lambda: supabase_admin.table("booking_seats").delete().eq("booking_id", booking_id).execute()
         )
-        new_seats = [{"booking_id": booking_id, "seat_id": sid, "showtime_id": body.new_showtime_id} for sid in body.new_seat_ids]
+        new_seats = [{"booking_id": booking_id, "seat_id": sid} for sid in body.new_seat_ids]
         await asyncio.to_thread(
             lambda: supabase_admin.table("booking_seats").insert(new_seats).execute()
-        )
-    else:
-        # Update existing booking_seats to new showtime
-        await asyncio.to_thread(
-            lambda: supabase_admin.table("booking_seats")
-                .update({"showtime_id": body.new_showtime_id})
-                .eq("booking_id", booking_id)
-                .execute()
         )
 
     # Restore old showtime's seats to available (the booking moved away from old_showtime_id)

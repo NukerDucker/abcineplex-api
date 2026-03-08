@@ -145,7 +145,7 @@ async def create_review(
         review_data.update(extras)
 
     try:
-        result = await crud_review.create(review_data, user_id=current_user.user_id)
+        result = await crud_review.create(review_data)
         review_id = result.id if hasattr(result, "id") else None
         await _award_review_points(current_user.user_id, review_id)
         return result
@@ -299,7 +299,7 @@ async def create_review_spec(
         review_data.update(extras)
 
     try:
-        result = await crud_review.create(review_data, user_id=current_user.user_id)
+        result = await crud_review.create(review_data)
         spec_review_id = result.id if hasattr(result, "id") else None
         await _award_review_points(current_user.user_id, spec_review_id)
         return result
