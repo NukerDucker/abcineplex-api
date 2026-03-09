@@ -61,8 +61,14 @@ class CRUDTheatre:
         return response.data[0] if response.data else None
 
     async def delete(self, theatre_id: int) -> bool:
+        """Soft-delete theatre by marking is_active=false.
+        Hard delete is avoided because seats/showtimes reference theatres via FK.
+        """
         response = await asyncio.to_thread(
-            lambda: self.client.table("theatres").delete().eq("id", theatre_id).execute()
+            lambda: self.client.table("theatres")
+                .update({"is_active": False})
+                .eq("id", theatre_id)
+                .execute()
         )
         return bool(response.data)
 
