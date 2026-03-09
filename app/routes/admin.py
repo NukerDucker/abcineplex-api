@@ -794,6 +794,17 @@ async def list_admin_point_transactions(
     offset: int = Query(0, ge=0),
 ):
     """Paginated list of all membership_transactions for admin audit."""
+    # Validate user_id is a proper UUID before sending to DB to avoid a 500
+    from uuid import UUID as _UUID
+    valid_user_id: Optional[str] = None
+    if user_id:
+        try:
+            _UUID(user_id)
+            valid_user_id = user_id
+        except ValueError:
+            # Not a valid UUID — ignore the filter; caller may be typing
+            valid_user_id = None
+
     try:
         def _fetch():
             q = supabase_admin.table("membership_transactions").select(
@@ -801,8 +812,8 @@ async def list_admin_point_transactions(
                 "users!fk_membership_transactions_user_id_users_id(email, full_name)",
                 count="exact",
             )
-            if user_id:
-                q = q.eq("user_id", user_id)
+            if valid_user_id:
+                q = q.eq("user_id", valid_user_id)
             if reason:
                 q = q.eq("reason", reason)
             return q.order("created_at", desc=True).range(offset, offset + limit - 1).execute()

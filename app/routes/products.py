@@ -3,7 +3,7 @@ Product and Category API Routes
 Handles all snack product and category endpoints
 """
 from fastapi import APIRouter, Depends
-from typing import List
+from typing import List, Optional
 from uuid import UUID
 
 from app.crud.product import CRUDProduct
@@ -101,10 +101,14 @@ async def get_products(
     limit: int = 20,
     category_id: str = None,
     in_stock: bool = True,
+    include_inactive: bool = False,
 ):
-    """Get products with optional filters (public endpoint)"""
+    """Get products with optional filters (public endpoint).
+    Pass include_inactive=true to fetch all products regardless of is_active — used by admin.
+    """
     category_uuid = UUID(category_id) if category_id else None
-    return await crud_product.get_products(skip, limit, category_uuid, in_stock)
+    active_filter: Optional[bool] = None if include_inactive else in_stock
+    return await crud_product.get_products(skip, limit, category_uuid, active_filter)
 
 
 @router.get("/{product_id}", response_model=Product)
