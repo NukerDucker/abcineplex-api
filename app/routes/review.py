@@ -90,7 +90,7 @@ async def _resolve_booking_context(booking_id: str, user_id: str) -> dict:
         if start_dt > datetime.now(timezone.utc):
             raise HTTPException(status_code=400, detail="Showtime has not started yet")
 
-    extras["showtime_id"] = showtime_id
+    # showtime_id is NOT stored — movie_reviews has no showtime_id column (derive via bookings.showtime_id)
     return extras
 
 
