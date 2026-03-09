@@ -60,22 +60,11 @@ class CRUDUser:
             return await self.get_by_id(user_id)
 
         try:
-            response = await asyncio.to_thread(
+            await asyncio.to_thread(
                 lambda: self.client.table("users")
                     .update(data)
                     .eq("id", user_id)
-                    .select(self.SELECT_COLUMNS)
-                    .maybe_single()
                     .execute()
-            )
-            if response and response.data and isinstance(response.data, dict):
-                return response.data
-            # UPDATE may have succeeded but the SELECT-after-update returned
-            # nothing (e.g. RLS blocks the return-select on the service client
-            # in some Supabase configurations). Fall back to a plain GET.
-            logger.debug(
-                "update for user %s returned no row from select; falling back to get_by_id",
-                user_id,
             )
             return await self.get_by_id(user_id)
         except Exception as exc:
