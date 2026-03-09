@@ -146,21 +146,36 @@ class CRUDShowtime:
         return showtime_record
 
     async def update(self, showtime_id: int, showtime_in: ShowtimeUpdate) -> Optional[dict]:
-        """Update showtime. Auto-recalculates end_time when start_time changes."""
+        """Update showtime. Auto-recalculates end_time when start_time changes.
+        Validates that the new start_time is in the future and doesn't conflict
+        with other showtimes in the same theatre (30-minute gap required).
+        """
         data = showtime_in.model_dump(exclude_unset=True, mode='json')
         if not data:
             return await self.get_by_id(showtime_id)
 
-        # Recalculate end_time if start_time is being changed
+        # Recalculate end_time and validate conflicts when start_time is being changed
         if "start_time" in data:
+            new_start = datetime.fromisoformat(str(data["start_time"]).replace("Z", "+00:00"))
+            if new_start.tzinfo is None:
+                new_start = new_start.replace(tzinfo=timezone.utc)
+
+            # Must be in the future
+            now = datetime.now(tz=timezone.utc)
+            if new_start <= now:
+                raise ValueError("start_time must be in the future.")
+
             current = await asyncio.to_thread(
                 lambda: self.client.table("showtimes")
-                    .select("movie_id")
+                    .select("movie_id, theatre_id")
                     .eq("id", showtime_id)
                     .maybe_single()
                     .execute()
             )
-            movie_id = (current.data or {}).get("movie_id")
+            current_data = current.data or {}
+            movie_id = current_data.get("movie_id")
+            theatre_id = current_data.get("theatre_id")
+
             if movie_id:
                 movie_resp = await asyncio.to_thread(
                     lambda: self.client.table("movies")
@@ -172,10 +187,45 @@ class CRUDShowtime:
                 movie = (movie_resp.data or [{}])[0]
                 runtime = int(movie.get("runtime_minutes") or movie.get("duration_minutes") or 0)
                 credits_min = int(movie.get("credits_duration_minutes") or 5)
-                new_start = datetime.fromisoformat(str(data["start_time"]).replace("Z", "+00:00"))
-                if new_start.tzinfo is None:
-                    new_start = new_start.replace(tzinfo=timezone.utc)
-                data["end_time"] = (new_start + timedelta(minutes=runtime + credits_min)).isoformat()
+                new_end = new_start + timedelta(minutes=runtime + credits_min)
+                data["end_time"] = new_end.isoformat()
+
+                # Check theatre conflict with 30-minute buffer (exclude self)
+                if theatre_id:
+                    BUFFER = timedelta(minutes=30)
+                    window_start = (new_start - timedelta(hours=12)).isoformat()
+                    window_end = (new_end + timedelta(hours=12)).isoformat()
+                    existing_resp = await asyncio.to_thread(
+                        lambda: self.client.table("showtimes")
+                            .select("id, start_time, end_time")
+                            .eq("theatre_id", theatre_id)
+                            .eq("is_active", True)
+                            .gte("start_time", window_start)
+                            .lte("start_time", window_end)
+                            .execute()
+                    )
+                    for row in (existing_resp.data or []):
+                        if row.get("id") == showtime_id:
+                            continue  # skip self
+                        ex_start_raw = row.get("start_time")
+                        ex_end_raw = row.get("end_time")
+                        if not ex_start_raw:
+                            continue
+                        ex_start = datetime.fromisoformat(str(ex_start_raw).replace("Z", "+00:00"))
+                        if ex_start.tzinfo is None:
+                            ex_start = ex_start.replace(tzinfo=timezone.utc)
+                        if ex_end_raw:
+                            ex_end = datetime.fromisoformat(str(ex_end_raw).replace("Z", "+00:00"))
+                            if ex_end.tzinfo is None:
+                                ex_end = ex_end.replace(tzinfo=timezone.utc)
+                        else:
+                            ex_end = ex_start + timedelta(hours=3)
+
+                        if new_start < (ex_end + BUFFER) and (new_end + BUFFER) > ex_start:
+                            raise ValueError(
+                                f"Showtime conflicts: must be at least 30 minutes after the show ending at "
+                                f"{ex_end.strftime('%H:%M')} in the same theatre."
+                            )
 
         response = await asyncio.to_thread(
             lambda: self.client.table("showtimes")

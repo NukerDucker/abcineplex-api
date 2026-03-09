@@ -16,7 +16,7 @@ class CRUDUser:
     SELECT_COLUMNS = (
         "id, email, user_name, full_name, phone, date_of_birth, "
         "loyalty_points, is_admin, is_active, is_student, "
-        "student_id_verified, password_hash, "
+        "student_id_verified, has_password, "
         "membership_tier, attendance_streak, "
         "created_at, updated_at"
     )
@@ -79,10 +79,8 @@ class CRUDUser:
             )
             return await self.get_by_id(user_id)
         except Exception as exc:
-            # Log the real error so we know why the update silently failed
             logger.error("update failed for user %s: %s", user_id, exc)
-            # Try returning the current record so the caller can still succeed
-            return await self.get_by_id(user_id)
+            raise
 
     async def get_by_username(self, user_name: str) -> Optional[dict]:
         """Helper to find a user by their @username."""

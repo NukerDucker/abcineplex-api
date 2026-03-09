@@ -32,9 +32,6 @@ class UserProfile(BaseModel):
         # 1. Map ID (user_id -> id)
         out.setdefault("id", data.get("user_id", ""))
 
-        # 2. Normalize full_name
-        full_name = (data.get("full_name") or "").strip()
-
         # 3. user_name fallback — Google OAuth users won't have one until they update it
         if not data.get("user_name"):
             email = data.get("email", "")
@@ -49,9 +46,8 @@ class UserProfile(BaseModel):
         # 5. Map Admin Status (explicitly ensure it's captured from DB)
         out.setdefault("is_admin", data.get("is_admin", False))
 
-        # 6. has_password: True if password_hash column is set
-        raw_hash = data.get("password_hash")
-        out["has_password"] = bool(raw_hash)
+        # 6. has_password: read the dedicated boolean column (never from a hash)
+        out.setdefault("has_password", bool(data.get("has_password", False)))
 
         return out
 

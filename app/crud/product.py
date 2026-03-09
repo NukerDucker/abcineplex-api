@@ -74,10 +74,12 @@ class CRUDProduct:
         return await self.get_product(product_id)
 
     async def delete_product(self, product_id: UUID) -> bool:
-        """Delete product, returns success status"""
+        """Soft-delete product by marking is_active=false.
+        Hard delete is avoided because order_items references products via FK.
+        """
         response = await asyncio.to_thread(
             lambda: self.client.table("products")
-                .delete()
+                .update({"is_active": False})
                 .eq("id", str(product_id))
                 .execute()
         )

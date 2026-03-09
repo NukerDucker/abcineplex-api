@@ -388,7 +388,10 @@ async def create_admin_showtime(showtime: ShowtimeCreate):
 @router.patch("/showtimes/{showtime_id}", response_model=Showtime)
 async def update_admin_showtime(showtime_id: int, showtime: ShowtimeUpdate):
     """Update showtime details"""
-    updated = await crud_showtime.update(showtime_id, showtime)
+    try:
+        updated = await crud_showtime.update(showtime_id, showtime)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
     if not updated:
         raise NotFoundException("Showtime", str(showtime_id))
     return updated

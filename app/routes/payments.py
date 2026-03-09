@@ -193,61 +193,41 @@ async def _apply_loyalty(
 
     # ── Referral bonus on first confirmed booking ──────────────────────────────
     if is_first_booking:
-        pending_res = await asyncio.to_thread(
-            lambda: supabase_admin.table("membership_transactions")
-                .select("reference_id")
-                .eq("user_id", user.user_id)
-                .eq("reason", "referral_pending")
-                .limit(1)
+        ref_row_res = await asyncio.to_thread(
+            lambda: supabase_admin.table("referrals")
+                .select("id, referrer_id")
+                .eq("referred_id", user.user_id)
+                .eq("points_awarded", False)
+                .maybe_single()
                 .execute()
         )
-        pending_rows = pending_res.data or []
-        if pending_rows:
-            referrer_id = pending_rows[0].get("reference_id")
-            if referrer_id:
-                # Award +50 to referred user
-                ref_user_res = await asyncio.to_thread(
-                    lambda: supabase_admin.table("users")
-                        .select("loyalty_points")
-                        .eq("id", user.user_id)
-                        .maybe_single()
-                        .execute()
-                )
-                ref_user_pts = (ref_user_res.data or {}).get("loyalty_points") or new_pts
-                await asyncio.to_thread(
-                    lambda: supabase_admin.table("users")
-                        .update({"loyalty_points": ref_user_pts + 50})
-                        .eq("id", user.user_id)
-                        .execute()
-                )
-                await _log_transaction(user.user_id, 50, "referral_bonus", referrer_id)
+        if ref_row_res.data:
+            referral_id = ref_row_res.data["id"]
+            referrer_id = ref_row_res.data["referrer_id"]
 
-                # Award +50 to referrer
-                referrer_res = await asyncio.to_thread(
-                    lambda: supabase_admin.table("users")
-                        .select("loyalty_points")
-                        .eq("id", referrer_id)
-                        .maybe_single()
-                        .execute()
-                )
-                referrer_pts = (referrer_res.data or {}).get("loyalty_points") or 0
-                await asyncio.to_thread(
-                    lambda: supabase_admin.table("users")
-                        .update({"loyalty_points": referrer_pts + 50})
-                        .eq("id", referrer_id)
-                        .execute()
-                )
-                await _log_transaction(referrer_id, 50, "referral_bonus", user.user_id)
+            referrer_res = await asyncio.to_thread(
+                lambda: supabase_admin.table("users")
+                    .select("loyalty_points")
+                    .eq("id", referrer_id)
+                    .maybe_single()
+                    .execute()
+            )
+            referrer_pts = (referrer_res.data or {}).get("loyalty_points") or 0
+            await asyncio.to_thread(
+                lambda: supabase_admin.table("users")
+                    .update({"loyalty_points": referrer_pts + 50})
+                    .eq("id", referrer_id)
+                    .execute()
+            )
+            await _log_transaction(referrer_id, 50, "referral_bonus", user.user_id)
 
-                # Remove the pending referral marker
-                await asyncio.to_thread(
-                    lambda: supabase_admin.table("membership_transactions")
-                        .delete()
-                        .eq("user_id", user.user_id)
-                        .eq("reason", "referral_pending")
-                        .execute()
-                )
-                logger.info(f"Referral bonus awarded: {user.user_id} and referrer {referrer_id} each +50 pts")
+            await asyncio.to_thread(
+                lambda: supabase_admin.table("referrals")
+                    .update({"points_awarded": True})
+                    .eq("id", referral_id)
+                    .execute()
+            )
+            logger.info(f"Referral bonus: referrer {referrer_id} +50 pts (referred user {user.user_id})")
 
     return points_earned
 

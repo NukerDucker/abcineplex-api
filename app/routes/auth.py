@@ -2,7 +2,6 @@ import asyncio
 import logging
 import os
 
-import bcrypt
 from fastapi import APIRouter, Depends
 
 from app.core.exceptions import AppException, AuthenticationException
@@ -29,7 +28,7 @@ router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 _PROFILE_SELECT = (
     "id, full_name, user_name, loyalty_points, is_admin, "
     "phone, date_of_birth, is_student, student_id_verified, "
-    "password_hash"
+    "has_password"
 )
 
 
@@ -55,7 +54,7 @@ def _build_token_user(user_id: str, email: str, profile: dict) -> TokenUser:
         student_id_verified=bool(profile.get("student_id_verified", False)),
         membership_tier="free",
         reward_points=int(profile.get("loyalty_points", 0) or 0),
-        has_password=bool(profile.get("password_hash")),
+        has_password=bool(profile.get("has_password", False)),
     )
 
 
@@ -118,13 +117,13 @@ async def register(body: RegisterRequest):
     user_id = str(auth_res.user.id)
     logger.info(f"[auth] register: auth user created — user_id={user_id}")
 
-    # 2. Hash password and UPDATE the trigger-created row with extra fields
-    password_hash = bcrypt.hashpw(body.password.encode(), bcrypt.gensalt()).decode()
+    # 2. UPDATE the trigger-created row with extra fields
+    # Password is owned by Supabase Auth (auth.users); we only record a flag.
     email_prefix = body.email.split("@")[0]
 
     update_data: dict = {
         "user_name": email_prefix,
-        "password_hash": password_hash,
+        "has_password": True,
     }
     if body.phone:
         update_data["phone"] = body.phone
@@ -144,20 +143,8 @@ async def register(body: RegisterRequest):
         logger.error(f"[auth] register: profile UPDATE exception: {e}", exc_info=True)
         # Not fatal — user is created, profile incomplete
 
-    # 3. No session → email confirmation required
-    if not auth_res.session:
-        logger.info("[auth] register: no session returned — email confirmation required")
-        return RegisterResponse(
-            message="Registration successful. Please check your email to confirm your account.",
-            requires_confirmation=True,
-        )
-
-    # 4. Session available → fetch full profile and auto-login
-    profile = await _fetch_profile(user_id)
-    email = str(auth_res.user.email or body.email)
-    token_user = _build_token_user(user_id, email, profile)
-
-    # EP-20: Record referral relationship — points awarded after referred user's first confirmed booking
+    # 3. Record referral — must happen before the session check so it's not skipped when
+    #    email confirmation is required (which causes an early return below).
     if body.referral_code:
         try:
             ref_res = await asyncio.to_thread(
@@ -169,15 +156,27 @@ async def register(body: RegisterRequest):
             )
             if ref_res.data and ref_res.data["id"] != user_id:
                 referrer_id = ref_res.data["id"]
-                # Store pending referral — _apply_loyalty will convert this to real points on first booking
                 await asyncio.to_thread(
-                    lambda: supabase_admin.table("membership_transactions")
-                        .insert({"user_id": user_id, "points_delta": 0, "reason": "referral_pending", "reference_id": referrer_id})
+                    lambda: supabase_admin.table("referrals")
+                        .insert({"referrer_id": referrer_id, "referred_id": user_id})
                         .execute()
                 )
-                logger.info(f"[auth] referral: pending referral recorded for new user {user_id}, referrer {referrer_id}")
+                logger.info(f"[auth] referral recorded: referrer={referrer_id}, referred={user_id}")
         except Exception as e:
-            logger.warning(f"[auth] referral pending record failed: {e}")
+            logger.warning(f"[auth] referral record failed: {e}")
+
+    # 4. No session → email confirmation required
+    if not auth_res.session:
+        logger.info("[auth] register: no session returned — email confirmation required")
+        return RegisterResponse(
+            message="Registration successful. Please check your email to confirm your account.",
+            requires_confirmation=True,
+        )
+
+    # 5. Session available → fetch full profile and auto-login
+    profile = await _fetch_profile(user_id)
+    email = str(auth_res.user.email or body.email)
+    token_user = _build_token_user(user_id, email, profile)
 
     logger.info(f"[auth] register: auto-login success for user_id={user_id}")
 
@@ -276,7 +275,6 @@ async def set_password(
     Also usable by credential users to change their password.
     """
     logger.info(f"[auth] set_password: user_id={current_user.user_id}")
-    password_hash = bcrypt.hashpw(body.password.encode(), bcrypt.gensalt()).decode()
 
     # Update Supabase Auth password so credential login works
     try:
@@ -298,18 +296,17 @@ async def set_password(
         logger.error(f"[auth] set_password: failed to update Supabase auth password: {e}", exc_info=True)
         raise AppException("Failed to set password", 500)
 
-    # Store hash in public.users
+    # Flag the user as having a password in public.users
     try:
-        logger.debug(f"[auth] set_password: updating password_hash in public.users for {current_user.user_id}")
-        update_res = await asyncio.to_thread(
+        logger.debug(f"[auth] set_password: setting has_password=true for {current_user.user_id}")
+        await asyncio.to_thread(
             lambda: supabase_admin.table("users")
-                .update({"password_hash": password_hash})
+                .update({"has_password": True})
                 .eq("id", current_user.user_id)
                 .execute()
         )
-        logger.debug(f"[auth] set_password: DB update result — data={update_res.data}")
     except Exception as e:
-        logger.error(f"[auth] set_password: failed to store password hash: {e}", exc_info=True)
+        logger.error(f"[auth] set_password: failed to update has_password flag: {e}", exc_info=True)
         raise AppException("Failed to set password", 500)
 
     logger.info(f"[auth] set_password: success for user_id={current_user.user_id}")
@@ -329,7 +326,6 @@ async def setup_info(
     Sets password (required) plus optional user_name, phone, date_of_birth.
     """
     logger.info(f"[auth] setup_info: user_id={current_user.user_id}")
-    password_hash = bcrypt.hashpw(body.password.encode(), bcrypt.gensalt()).decode()
 
     # Update Supabase Auth password so credential login works
     try:
@@ -350,8 +346,8 @@ async def setup_info(
         logger.error(f"[auth] setup_info: failed to update Supabase auth password: {e}", exc_info=True)
         raise AppException("Failed to set password", 500)
 
-    # Build update payload for public.users
-    update_data: dict = {"password_hash": password_hash}
+    # Build update payload for public.users (flag only — no hash stored here)
+    update_data: dict = {"has_password": True}
     if body.user_name:
         update_data["user_name"] = body.user_name
     if body.phone:

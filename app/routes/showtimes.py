@@ -79,6 +79,7 @@ async def get_showtime(showtime_id: int):
     raqs, ttc = _movie_raqs_ttc(movie_row)
 
     theatre_row = raw.get("theatres") or {}
+    theatre_id = raw.get("theatre_id") or (theatre_row.get("id") if isinstance(theatre_row, dict) else None)
     total_seats = theatre_row.get("total_seats") if isinstance(theatre_row, dict) else None
     available = await crud_showtime.get_showtime_availability(showtime_id)
 
