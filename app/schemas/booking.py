@@ -16,7 +16,7 @@ class BookingStatus(str, Enum):
 class GuestBookingRequest(BaseModel):
     """Used by POST /bookings/guest — no auth required."""
     showtime_id:    int
-    seat_ids:       List[int] = Field(..., min_length=1, max_length=8)
+    seat_ids:       List[int] = Field(..., min_length=1, max_length=10)
     price_per_seat: float
     ticket_type:    str = "normal"
     email:          Optional[str] = None
@@ -42,7 +42,7 @@ class GuestBookingResponse(BaseModel):
 class ReserveSeatRequest(BaseModel):
     """Sent when the user proceeds from seat selection to payment."""
     showtime_id:     int
-    seat_ids:        List[int] = Field(..., min_length=1, max_length=8)
+    seat_ids:        List[int] = Field(..., min_length=1, max_length=10)
     price_per_seat:  float
     # ticket_type is the per-request intent and is written to each tickets row.
     ticket_type:     str = "normal"   # "normal" | "student"
@@ -67,7 +67,7 @@ class ChangeShowtimeRequest(BaseModel):
 
 
 class ChangeSeatRequest(BaseModel):
-    new_seat_ids: List[int] = Field(..., min_length=1, max_length=8)
+    new_seat_ids: List[int] = Field(..., min_length=1, max_length=10)
 
 
 # ── Response schemas ──────────────────────────────────────────
